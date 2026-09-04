@@ -112,6 +112,14 @@ export class ObservabilityRepository {
     return result.rows;
   }
 
+  /** Application-side view of a device's Internet access (Task 0006). */
+  async setInternetAccess(deviceId: string, blocked: boolean): Promise<void> {
+    await this.pool.query(
+      'UPDATE device SET internet_access = $2 WHERE id = $1',
+      [deviceId, !blocked]
+    );
+  }
+
   /** Scheduler-only write path for telemetry samples. */
   async insertTelemetrySnapshot(
     routerId: string,

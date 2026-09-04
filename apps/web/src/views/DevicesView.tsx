@@ -5,8 +5,12 @@
 import { useEffect, useState } from 'react';
 import { api, type DeviceRow, type PresenceEvent, type RouterSummary } from '../api.js';
 import { Card, EmptyState, StatusBadge } from '../components.js';
+import { InternetAccessControl } from '../InternetAccessControl.js';
 import { useI18n } from '../i18n-context.js';
 import { formatTime } from './DashboardView.js';
+
+/** Local view-state: device id -> internetAccess override after a mutation. */
+type AccessOverride = Record<string, boolean | null>;
 
 export function DevicesView({
   router,
@@ -23,6 +27,9 @@ export function DevicesView({
   const { t } = useI18n();
   const [devices, setDevices] = useState<DeviceRow[] | null>(initialDevices ?? null);
   const [presence, setPresence] = useState<PresenceEvent[] | null>(null);
+  const [accessOverride, setAccessOverride] = useState<AccessOverride>({});
+  const canControl =
+    router?.capabilities.includes('device-internet-access-control') ?? false;
 
   useEffect(() => {
     if (!router) return;
@@ -128,28 +135,51 @@ export function DevicesView({
               <th>{t('devices.status')}</th>
               <th>{t('devices.first_seen')}</th>
               <th>{t('devices.last_seen')}</th>
+              <th>Internet</th>
             </tr>
           </thead>
           <tbody>
-            {devices.map((device) => (
-              <tr
-                key={device.id}
-                className="row-clickable"
-                onClick={() => onOpenDevice(device.id)}
-              >
-                <td>{device.name ?? device.mac ?? device.id}</td>
-                <td>{device.ip ?? '—'}</td>
-                <td className="mono">{device.mac ?? '—'}</td>
-                <td>
-                  <StatusBadge
-                    online={device.online}
-                    label={device.online ? t('status.online') : t('status.offline')}
-                  />
-                </td>
-                <td>{formatTime(device.firstSeenAt)}</td>
-                <td>{formatTime(device.lastSeenAt)}</td>
-              </tr>
-            ))}
+            {devices.map((device) => {
+              const access =
+                device.id in accessOverride
+                  ? accessOverride[device.id] === true
+                  : device.internetAccess;
+              return (
+                <tr
+                  key={device.id}
+                  className="row-clickable"
+                  onClick={() => onOpenDevice(device.id)}
+                >
+                  <td>{device.name ?? device.mac ?? device.id}</td>
+                  <td>{device.ip ?? '—'}</td>
+                  <td className="mono">{device.mac ?? '—'}</td>
+                  <td>
+                    <StatusBadge
+                      online={device.online}
+                      label={device.online ? t('status.online') : t('status.offline')}
+                    />
+                  </td>
+                  <td>{formatTime(device.firstSeenAt)}</td>
+                  <td>{formatTime(device.lastSeenAt)}</td>
+                  <td
+                    onClick={(event) => {
+                      // Keep row-click navigation off the mutation controls.
+                      event.stopPropagation();
+                    }}
+                  >
+                    <InternetAccessControl
+                      routerId={router.id}
+                      deviceId={device.id}
+                      internetAccess={access}
+                      canControl={canControl}
+                      onChanged={(blocked) =>
+                        setAccessOverride((current) => ({ ...current, [device.id]: blocked }))
+                      }
+                    />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

@@ -119,5 +119,17 @@ export const api = {
     ),
 
   telemetry: (routerId: string) =>
-    request<{ snapshots: TelemetrySnapshot[] }>(`/api/routers/${routerId}/telemetry`)
+    request<{ snapshots: TelemetrySnapshot[] }>(`/api/routers/${routerId}/telemetry`),
+
+  blockDevice: (routerId: string, deviceId: string) =>
+    request<{ status: string; state: string }>(
+      `/api/routers/${routerId}/devices/${deviceId}/block`,
+      { method: 'POST' }
+    ),
+
+  unblockDevice: (routerId: string, deviceId: string) =>
+    request<{ status: string; state: string }>(
+      `/api/routers/${routerId}/devices/${deviceId}/unblock`,
+      { method: 'POST' }
+    )
 };

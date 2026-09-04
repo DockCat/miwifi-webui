@@ -20,6 +20,7 @@ import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoutes } from './routes/health.js';
 import { registerRouterRoutes } from './routes/router.js';
 import { registerObservabilityRoutes } from './routes/observability.js';
+import { registerMutationRoutes } from './routes/mutations.js';
 import type pg from 'pg';
 
 export interface BuildAppOptions {
@@ -61,6 +62,11 @@ export async function buildApp(
     repository: observabilityRepository,
     events,
     scheduler
+  });
+  registerMutationRoutes(app, {
+    routerRepository,
+    observabilityRepository,
+    audit
   });
 
   return app;

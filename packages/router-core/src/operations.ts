@@ -75,6 +75,24 @@ export const OPERATIONS = {
     effect: 'WRITE',
     requiresStok: true,
     probe: false
+  },
+  /** Restore a device's Internet access (WRITE — reversible). */
+  unblockInternet: {
+    id: 'unblock_internet',
+    path: '/cgi-bin/luci/api/xqsmarthome/{stok}/request',
+    method: 'POST',
+    effect: 'WRITE',
+    requiresStok: true,
+    probe: false
+  },
+  /** Smart home device list — used to read back block state. */
+  smartHomeDeviceList: {
+    id: 'smarthome_devicelist',
+    path: '/cgi-bin/luci/api/xqsmarthome/{stok}/request',
+    method: 'POST',
+    effect: 'READ',
+    requiresStok: true,
+    probe: false
   }
 } as const satisfies Record<string, RouterOperationSpec>;
 

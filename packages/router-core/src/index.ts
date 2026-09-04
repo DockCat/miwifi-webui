@@ -80,3 +80,11 @@ export type {
   StoredDeviceState,
   KeyedTransition
 } from './presence.js';
+
+// --- Access control mutation (Task 0006) ---
+
+export {
+  blockDeviceInternet,
+  unblockDeviceInternet
+} from './access-control.js';
+export type { InternetAccessState, MutationOutcome } from './access-control.js';

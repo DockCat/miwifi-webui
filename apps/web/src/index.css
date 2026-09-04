@@ -199,6 +199,29 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .hint { font-size: 0.8rem; color: var(--muted); }
 .app-loading { padding: 3rem; text-align: center; color: var(--muted); }
 
+/* --- Access control (mutation confirmation) --- */
+.access-control { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.confirm-inline {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--card));
+  font-size: 0.8rem;
+}
+.confirm-yes {
+  padding: 0.2rem 0.6rem;
+  border: none;
+  border-radius: 5px;
+  background: var(--down);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* --- Login --- */
 .login-page {
   min-height: 100vh;
