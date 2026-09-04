@@ -2,13 +2,18 @@
  * Fastify application factory.
  *
  * Kept separate from main.ts so tests can build the app without binding a
- * port or owning the database lifecycle.
+ * port or owning the database lifecycle. Async because plugin registration
+ * (@fastify/cookie) must complete before routes are registered.
  */
+import cookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { AuthRepository } from './auth/repository.js';
+import { AuditWriter } from './audit/writer.js';
+import { registerAuthRoutes } from './routes/auth.js';
 import { registerHealthRoutes } from './routes/health.js';
 import type pg from 'pg';
 
-export function buildApp(pool: pg.Pool): FastifyInstance {
+export async function buildApp(pool: pg.Pool): Promise<FastifyInstance> {
   const app = Fastify({
     // Structured pino logging with safe base fields. Request bodies are
     // never logged globally.
@@ -18,7 +23,13 @@ export function buildApp(pool: pg.Pool): FastifyInstance {
     }
   });
 
+  await app.register(cookie);
+
+  const authRepository = new AuthRepository(pool);
+  const audit = new AuditWriter(pool);
+
   registerHealthRoutes(app, pool);
+  registerAuthRoutes(app, { repository: authRepository, audit });
 
   return app;
 }

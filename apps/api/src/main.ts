@@ -10,7 +10,7 @@ async function main(): Promise<void> {
   const config = loadConfig();
 
   const pool = createPool(config.databaseUrl);
-  const app = buildApp(pool);
+  const app = await buildApp(pool);
 
   try {
     await app.listen({ port: config.port, host: config.host });
