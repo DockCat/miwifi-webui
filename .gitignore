@@ -1,0 +1,22 @@
+# Local agent / workspace runtime state
+.gstack/
+.codegraph/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Test / tooling output
+coverage/
+*.log
+
+# OS / editor
+.DS_Store
