@@ -1,0 +1,147 @@
+/**
+ * i18n foundation (Task 0005): zh-CN + en, browser-locale default.
+ * Messages are plain records — a fuller catalog system can come later.
+ */
+
+export type Locale = 'en' | 'zh-CN';
+
+export const LOCALES: readonly Locale[] = ['en', 'zh-CN'];
+
+export function detectLocale(): Locale {
+  if (typeof navigator === 'undefined') return 'en';
+  const languages = navigator.languages ?? [navigator.language];
+  for (const lang of languages) {
+    if (lang?.toLowerCase().startsWith('zh')) return 'zh-CN';
+  }
+  return 'en';
+}
+
+const messages = {
+  en: {
+    'app.title': 'miwifi-webui',
+    'app.tagline': 'Router administration and observability',
+    'nav.dashboard': 'Dashboard',
+    'nav.devices': 'Devices',
+    'nav.network': 'Network',
+    'nav.events': 'Events',
+    'nav.settings': 'Settings',
+    'login.title': 'Sign in',
+    'login.username': 'Username',
+    'login.password': 'Password',
+    'login.submit': 'Sign in',
+    'login.error': 'Invalid username or password.',
+    'login.bootstrap_title': 'Create administrator',
+    'login.bootstrap_hint':
+      'No administrator exists yet. Create one now — bootstrap is only available from this machine.',
+    'login.bootstrap_submit': 'Create and sign in',
+    'status.online': 'Online',
+    'status.offline': 'Offline',
+    'status.unknown': 'Unknown',
+    'status.unreachable': 'Unreachable',
+    'dashboard.router_health': 'Router health',
+    'dashboard.devices_online': 'Devices online',
+    'dashboard.recent_events': 'Recent events',
+    'dashboard.no_routers': 'No router onboarded yet. Add one in Settings.',
+    'dashboard.cpu': 'CPU',
+    'dashboard.memory': 'Memory',
+    'dashboard.wan': 'WAN',
+    'devices.title': 'Devices',
+    'devices.name': 'Name',
+    'devices.ip': 'IP',
+    'devices.mac': 'MAC',
+    'devices.status': 'Status',
+    'devices.first_seen': 'First seen',
+    'devices.last_seen': 'Last seen',
+    'devices.empty': 'No devices observed yet.',
+    'devices.back': 'Back to devices',
+    'device.timeline': 'Presence timeline',
+    'device.empty_timeline': 'No presence history recorded yet.',
+    'events.title': 'Events',
+    'events.empty': 'No events yet.',
+    'events.presence': 'Presence',
+    'settings.title': 'Settings',
+    'settings.routers': 'Routers',
+    'settings.router_add': 'Onboard router',
+    'settings.router_host': 'Router address',
+    'settings.router_username': 'Router username',
+    'settings.router_password': 'Router password',
+    'settings.router_compatibility': 'Compatibility',
+    'settings.router_capabilities': 'Capabilities',
+    'settings.change_password': 'Change password',
+    'settings.current_password': 'Current password',
+    'settings.new_password': 'New password',
+    'settings.logout': 'Sign out',
+    'common.loading': 'Loading…',
+    'common.error': 'Something went wrong.',
+    'common.save': 'Save',
+    'presence.FIRST_SEEN': 'First seen',
+    'presence.ONLINE': 'Came online',
+    'presence.OFFLINE': 'Went offline'
+  },
+  'zh-CN': {
+    'app.title': 'miwifi-webui',
+    'app.tagline': '路由器管理与观测',
+    'nav.dashboard': '仪表盘',
+    'nav.devices': '设备',
+    'nav.network': '网络',
+    'nav.events': '事件',
+    'nav.settings': '设置',
+    'login.title': '登录',
+    'login.username': '用户名',
+    'login.password': '密码',
+    'login.submit': '登录',
+    'login.error': '用户名或密码错误。',
+    'login.bootstrap_title': '创建管理员',
+    'login.bootstrap_hint': '尚无管理员账户。请立即创建 — 引导功能仅限本机使用。',
+    'login.bootstrap_submit': '创建并登录',
+    'status.online': '在线',
+    'status.offline': '离线',
+    'status.unknown': '未知',
+    'status.unreachable': '不可达',
+    'dashboard.router_health': '路由器健康',
+    'dashboard.devices_online': '在线设备',
+    'dashboard.recent_events': '最近事件',
+    'dashboard.no_routers': '尚未添加路由器。请在设置中添加。',
+    'dashboard.cpu': 'CPU',
+    'dashboard.memory': '内存',
+    'dashboard.wan': '外网 (WAN)',
+    'devices.title': '设备',
+    'devices.name': '名称',
+    'devices.ip': 'IP 地址',
+    'devices.mac': 'MAC 地址',
+    'devices.status': '状态',
+    'devices.first_seen': '首次发现',
+    'devices.last_seen': '最近在线',
+    'devices.empty': '尚未发现设备。',
+    'devices.back': '返回设备列表',
+    'device.timeline': '在线时间线',
+    'device.empty_timeline': '暂无在线记录。',
+    'events.title': '事件',
+    'events.empty': '暂无事件。',
+    'events.presence': '在线状态',
+    'settings.title': '设置',
+    'settings.routers': '路由器',
+    'settings.router_add': '添加路由器',
+    'settings.router_host': '路由器地址',
+    'settings.router_username': '路由器用户名',
+    'settings.router_password': '路由器密码',
+    'settings.router_compatibility': '兼容性',
+    'settings.router_capabilities': '能力',
+    'settings.change_password': '修改密码',
+    'settings.current_password': '当前密码',
+    'settings.new_password': '新密码',
+    'settings.logout': '退出登录',
+    'common.loading': '加载中…',
+    'common.error': '出现错误。',
+    'common.save': '保存',
+    'presence.FIRST_SEEN': '首次发现',
+    'presence.ONLINE': '已上线',
+    'presence.OFFLINE': '已离线'
+  }
+} as const;
+
+export type MessageKey = keyof (typeof messages)['en'];
+
+export function translate(locale: Locale, key: MessageKey): string {
+  return messages[locale][key] ?? messages.en[key] ?? key;
+}

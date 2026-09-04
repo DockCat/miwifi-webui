@@ -1,52 +1,170 @@
-import { useEffect, useState } from 'react';
-import type { HealthResponse } from '@miwifi-webui/contracts';
+/**
+ * App shell: session gate, persistent navigation, view routing, live SSE.
+ */
+import { useCallback, useEffect, useState } from 'react';
+import { api, type RouterSummary, UnauthorizedError } from './api.js';
+import { I18nContext } from './i18n-context.js';
+import { detectLocale, translate, type Locale, type MessageKey } from './i18n.js';
+import { LoginPage } from './LoginPage.js';
+import { useRoute } from './router.js';
+import { DashboardView } from './views/DashboardView.js';
+import { DevicesView } from './views/DevicesView.js';
+import { EventsView, NetworkView } from './views/NetworkEventsView.js';
+import { SettingsView } from './views/SettingsView.js';
+import { useLiveEvents } from './use-live-events.js';
 
-type BackendState =
-  | { kind: 'unknown' }
+type AuthState =
   | { kind: 'checking' }
-  | { kind: 'ok'; time: string }
-  | { kind: 'down' };
-
-const initialState: BackendState = { kind: 'unknown' };
+  | { kind: 'signed-out' }
+  | { kind: 'signed-in'; username: string };
 
 export function App() {
-  const [backend, setBackend] = useState<BackendState>(initialState);
+  const [auth, setAuth] = useState<AuthState>({ kind: 'checking' });
+  const [routers, setRouters] = useState<RouterSummary[]>([]);
+  const [locale] = useState<Locale>(detectLocale());
+  const [route, navigate] = useRoute();
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
+  const t = useCallback((key: MessageKey) => translate(locale, key), [locale]);
 
-    const check = async () => {
-      setBackend({ kind: 'checking' });
-      try {
-        const response = await fetch('/api/health');
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const body = (await response.json()) as HealthResponse;
-        if (!cancelled) setBackend({ kind: 'ok', time: body.time });
-      } catch {
-        if (!cancelled) setBackend({ kind: 'down' });
-      }
-    };
-
-    void check();
-    return () => {
-      cancelled = true;
-    };
+  const loadRouters = useCallback(async (): Promise<void> => {
+    try {
+      const result = await api.routers();
+      setRouters(result.routers);
+    } catch (error) {
+      if (error instanceof UnauthorizedError) setAuth({ kind: 'signed-out' });
+    }
   }, []);
 
-  return (
-    <div className="app">
-      <h1>miwifi-webui</h1>
-      <p>Self-hosted administration, observability, and investigation for Xiaomi routers.</p>
-      <span className="badge">Bootstrap · early development</span>
+  useEffect(() => {
+    void (async () => {
+      try {
+        const session = await api.session();
+        setAuth({ kind: 'signed-in', username: session.username });
+        await loadRouters();
+      } catch {
+        setAuth({ kind: 'signed-out' });
+      }
+    })();
+  }, [loadRouters]);
 
-      <div className="status-row">
-        {backend.kind === 'ok' && (
-          <p className="ok">Backend API: online ({backend.time})</p>
-        )}
-        {backend.kind === 'down' && <p className="down">Backend API: offline</p>}
-        {backend.kind === 'checking' && <p>Backend API: checking…</p>}
-        {backend.kind === 'unknown' && <p>Backend API: not checked</p>}
+  // Session-expiry heartbeat: a 401 from any poll flips to signed-out.
+  useLiveEvents(auth.kind === 'signed-in' && routers.length > 0, (event) => {
+    if (event.type === 'router-status' && event.data['unreachable'] === true) {
+      setRefreshTick((tick) => tick + 1);
+    }
+  });
+
+  if (auth.kind === 'checking') {
+    return <div className="app-loading">{t('common.loading')}</div>;
+  }
+
+  if (auth.kind === 'signed-out') {
+    return (
+      <I18nContext.Provider value={{ locale, t }}>
+        <LoginPage
+          onAuthenticated={async () => {
+            const session = await api.session();
+            setAuth({ kind: 'signed-in', username: session.username });
+            await loadRouters();
+          }}
+        />
+      </I18nContext.Provider>
+    );
+  }
+
+  const activeRouter = routers[0] ?? null;
+
+  const handleLogout = async (): Promise<void> => {
+    await api.logout().catch(() => undefined);
+    setAuth({ kind: 'signed-out' });
+    setRouters([]);
+  };
+
+  return (
+    <I18nContext.Provider value={{ locale, t }}>
+      <div className="shell">
+        <nav className="sidebar">
+          <div className="brand">
+            <span className="brand-name">{t('app.title')}</span>
+            <span className="brand-sub">{t('app.tagline')}</span>
+          </div>
+          <ul>
+            <NavItem
+              label={t('nav.dashboard')}
+              active={route.page === 'dashboard'}
+              onClick={() => navigate({ page: 'dashboard' })}
+            />
+            <NavItem
+              label={t('nav.devices')}
+              active={route.page === 'devices'}
+              onClick={() => navigate({ page: 'devices' })}
+            />
+            <NavItem
+              label={t('nav.network')}
+              active={route.page === 'network'}
+              onClick={() => navigate({ page: 'network' })}
+            />
+            <NavItem
+              label={t('nav.events')}
+              active={route.page === 'events'}
+              onClick={() => navigate({ page: 'events' })}
+            />
+            <NavItem
+              label={t('nav.settings')}
+              active={route.page === 'settings'}
+              onClick={() => navigate({ page: 'settings' })}
+            />
+          </ul>
+          <div className="sidebar-footer">
+            <span className="muted">{auth.username}</span>
+            <button className="link-button" onClick={() => void handleLogout()}>
+              {t('settings.logout')}
+            </button>
+          </div>
+        </nav>
+        <main className="content" key={refreshTick}>
+          {route.page === 'dashboard' && <DashboardView router={activeRouter} />}
+          {route.page === 'devices' && (
+            <DevicesView
+              router={activeRouter}
+              deviceId={route.deviceId}
+              onOpenDevice={(id) => navigate({ page: 'devices', deviceId: id })}
+            />
+          )}
+          {route.page === 'network' && <NetworkView router={activeRouter} />}
+          {route.page === 'events' && <EventsView router={activeRouter} />}
+          {route.page === 'settings' && (
+            <SettingsView
+              router={activeRouter}
+              onRoutersChanged={() => void loadRouters()}
+              onLogout={() => void handleLogout()}
+            />
+          )}
+        </main>
       </div>
-    </div>
+    </I18nContext.Provider>
+  );
+}
+
+function NavItem({
+  label,
+  active,
+  onClick
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        className={`nav-item ${active ? 'is-active' : ''}`}
+        aria-current={active ? 'page' : undefined}
+        onClick={onClick}
+      >
+        {label}
+      </button>
+    </li>
   );
 }
