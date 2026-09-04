@@ -23,3 +23,34 @@ export {
   validateRouterTarget
 } from './target-validation.js';
 export type { ParsedRouterTarget, IPv4Parts } from './target-validation.js';
+
+// --- Adapter foundation (Task 0003) ---
+
+export type { RouterIdentity, RouterStatusInfo } from './router-state.js';
+
+export {
+  RouterTransportError
+} from './transport.js';
+export type {
+  RouterTransport,
+  RouterTransportRequest,
+  RouterTransportResponse,
+  RouterTransportBody,
+  RouterTransportFailure
+} from './transport.js';
+
+export {
+  OPERATIONS,
+  specFor,
+  resolvePath
+} from './operations.js';
+export type { RouterOperationSpec, OperationKey } from './operations.js';
+
+export { MiWifiAdapter } from './adapter.js';
+export type { AdapterCredentials, ProbeResult, LoginResult } from './adapter.js';
+
+export { FixtureTransport } from './fixture-transport.js';
+export type { FixtureScenario } from './fixture-transport.js';
+
+export { HttpRouterTransport } from './http-transport.js';
+export type { HttpRouterTransportOptions } from './http-transport.js';
