@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+
+# pnpm 11 blocks dependency postinstall scripts by default. esbuild needs
+# its postinstall to select the platform binary.
+allowBuilds:
+  esbuild: true

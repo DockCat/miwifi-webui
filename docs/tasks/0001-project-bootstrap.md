@@ -1,6 +1,6 @@
 # Task 0001 — Project Bootstrap
 
-Status: `READY`
+Status: `DONE`
 
 Task ID: `0001`
 
@@ -667,28 +667,58 @@ Do not modify unrelated local tool state.
 
 ## 29. Completion record
 
-Complete this section only after implementation.
-
 ### Result
 
 Status:
 
-`NOT YET EXECUTED`
+`DONE` — completed 2026-09-05.
 
 ### Implementation summary
 
-Pending.
+* pnpm 11 workspace (Corepack-pinned via `packageManager`) with `apps/*` and `packages/*`.
+* `apps/web`: React 19 + Vite 7 + TypeScript, application shell showing project title, bootstrap status, and live backend `/api/health` status; `/api` proxied to the API dev server.
+* `apps/api`: Fastify 5 + TypeScript, central validated config boundary (with `.env` loading and a `dotenv: false` test isolation option), PostgreSQL pool, `GET /api/health` + `GET /api/ready` routes, structured pino logging, graceful SIGINT/SIGTERM shutdown; production build bundles with esbuild (`packages: 'external'`).
+* `packages/contracts`: `HealthResponse` / `ReadyResponse` DTOs shared between web and API (secret-free by construction).
+* `packages/router-core`: foundational domain types — `RouterCompatibilityStatus`, `RouterOperationEffect`, `RouterCapability`, `RouterOperation`, and the router-target local/private-network validation policy (RFC1918/link-local/loopback IPv4, conservative hostname shapes, permitted IPv6 ranges) with unit tests.
+* Migration foundation: dependency-free runner over committed SQL files tracked in `_migrations`; baseline migration `0001-baseline.sql` (bookkeeping only — no premature entities).
+* `compose.yaml`: PostgreSQL 17 with persistent volume, env-var-driven credentials, `pg_isready` healthcheck.
+* Quality tooling: root `dev` / `build` / `test` / `lint` / `typecheck` / `db:migrate` scripts; ESLint 9 flat config (typescript-eslint, type-import rules, `.mjs` node globals); strict `tsconfig.base.json` (`noUncheckedIndexedAccess`, `verbatimModuleSyntax`).
+* `.gitignore` protects `.env`, `node_modules`, `dist`, `.gstack/`, `.codegraph/`; `.env.example` documents development placeholders.
 
 ### Verification
 
-Pending.
+All verification was executed against the live workspace (2026-09-05):
+
+| Check | Command | Result |
+| --- | --- | --- |
+| Install | `pnpm install` | one lockfile, clean install |
+| PostgreSQL | `docker compose up -d postgres` | container reaches `healthy` |
+| Migrations | `pnpm db:migrate` | `0001-baseline.sql` applied; re-run is a no-op ("No new migrations to apply") |
+| Tests | `pnpm test` | 10 pass, 0 fail |
+| Lint | `pnpm lint` | 0 errors |
+| Typecheck | `pnpm typecheck` | 0 errors across all packages |
+| Build | `pnpm build` | API bundle + web production build succeed |
+| API runtime | `node apps/api/dist/main.js` | `/api/health` → `{"status":"ok",...}`; `/api/ready` → `{"status":"ok","checks":{"database":true}}` |
+| Web runtime | `pnpm dev` | page served at :5173; `/api` proxy to API verified |
+| Graceful shutdown | SIGINT to running API | structured log "Shutting down" → "Shutdown complete"; process exits cleanly |
+
+Security checks:
+
+* no secrets, router credentials, or `stok` anywhere in the committed tree;
+* no arbitrary-URL fetch endpoint (none exists);
+* no global request-body logging (request logs carry method/url/status/duration only);
+* health/ready responses leak no environment values — verified by tests with recognizable sentinels;
+* `.gstack/` and `.codegraph/` are gitignored and untracked.
 
 ### Deviations from task
 
-Pending.
+* Task suggested `pnpm` as preferred package manager; implemented with pnpm 11 (Corepack).
+* Task allowed an empty/minimal first migration; implemented the migration runner itself (dependency-free) rather than adopting an ORM migration tool, since the ORM choice is deliberately unresolved — the runner is drop-in replaceable.
+* Task mentioned a `web` Compose service; bootstrap keeps production container images out of scope and documents dev topology (Vite dev server + API) in README, per the task's allowance ("It is also acceptable for bootstrap to run the Vite development server separately"). Compose currently contains only `postgres`.
+* `pnpm dev` runs the two apps via `--parallel --filter`; single-process orchestration tools (turbo etc.) intentionally not introduced.
 
 ### Follow-up work
 
 Expected next task:
 
-MiWifiAdapter / compatibility-probe foundation.
+MiWifiAdapter / compatibility-probe foundation (`packages/router-core` grows the typed adapter abstraction, fixture transport, and probe; API gains router onboarding target validation wiring).

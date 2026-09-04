@@ -354,9 +354,94 @@ ADRs are reserved for decisions that are expensive or risky to reverse.
 
 ## Development status
 
-The project is currently in the bootstrap stage.
+The repository has completed project bootstrap (`docs/tasks/0001-project-bootstrap.md`): a pnpm TypeScript workspace with a React/Vite frontend (`apps/web`), a Fastify backend (`apps/api`), shared API contracts (`packages/contracts`), router domain types (`packages/router-core`), PostgreSQL via Docker Compose, and a committed migration foundation. Router integration, authentication, and AI features are not implemented yet.
 
-Do not assume development commands, package-manager commands, ports, or environment variables exist until they are introduced by implementation and documented in this README.
+## Development workflow
+
+All commands below are verified against the current workspace. `pnpm` (via Corepack) and Docker are prerequisites.
+
+### Prerequisites
+
+* Node.js >= 22
+* pnpm 11 (e.g. `corepack enable` — the version is pinned by `packageManager` in `package.json`)
+* Docker (for PostgreSQL)
+
+### Install
+
+```bash
+pnpm install
+```
+
+### Environment
+
+```bash
+cp .env.example .env
+```
+
+The `.env` file is development-only and never committed. The backend loads it automatically (real environment variables still take precedence).
+
+### Start PostgreSQL
+
+```bash
+docker compose up -d postgres
+```
+
+Wait for `healthy` status:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' miwifi-webui-postgres
+```
+
+### Run migrations
+
+```bash
+pnpm db:migrate
+```
+
+Re-running is safe: applied migrations are tracked in a `_migrations` bookkeeping table and skipped.
+
+### Run development servers
+
+```bash
+pnpm dev
+```
+
+This starts both apps in parallel:
+
+* Web (Vite): http://localhost:5173 — proxies `/api` to the backend
+* API (Fastify, tsx watch): http://127.0.0.1:3001
+
+Endpoints: `GET /api/health` (liveness), `GET /api/ready` (database readiness).
+
+### Test
+
+```bash
+pnpm test
+```
+
+### Lint
+
+```bash
+pnpm lint
+```
+
+### Typecheck
+
+```bash
+pnpm typecheck
+```
+
+### Build
+
+```bash
+pnpm build
+```
+
+Builds the web production bundle (`apps/web/dist`) and the API server bundle (`apps/api/dist`). Start the production API with:
+
+```bash
+pnpm --filter @miwifi-webui/api start
+```
 
 ## Upstream reference
 
