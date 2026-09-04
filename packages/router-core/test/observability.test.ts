@@ -1,0 +1,132 @@
+/**
+ * Observability domain unit tests: device normalization, presence
+ * transitions, reconciliation.
+ */
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import {
+  deviceKey,
+  normalizeDevice,
+  normalizeDeviceList,
+  normalizeRouterStatus,
+  reconcilePresence,
+  transitionForExisting
+} from '../src/index.js';
+
+describe('normalizeDevice', () => {
+  it('normalizes a typical MiWiFi entry', () => {
+    const device = normalizeDevice({
+      mac: 'aa:bb:cc:dd:ee:ff',
+      name: 'living-room-tv',
+      ip: '192.168.31.108',
+      online: true
+    });
+    assert.deepEqual(device, {
+      mac: 'AA:BB:CC:DD:EE:FF',
+      name: 'living-room-tv',
+      ip: '192.168.31.108',
+      online: true
+    });
+  });
+
+  it('treats string "true"/"1" as online (firmware variance)', () => {
+    assert.equal(normalizeDevice({ mac: 'A:1', online: 'true' })?.online, true);
+    assert.equal(normalizeDevice({ mac: 'A:2', online: 1 })?.online, true);
+    assert.equal(normalizeDevice({ mac: 'A:3', online: 'false' })?.online, false);
+    assert.equal(normalizeDevice({ mac: 'A:4' })?.online, false);
+  });
+
+  it('prefers nickname when name is absent', () => {
+    const device = normalizeDevice({ mac: 'A:5', nickname: 'phone' });
+    assert.equal(device?.name, 'phone');
+  });
+
+  it('rejects entries with neither mac nor ip', () => {
+    assert.equal(normalizeDevice({ name: 'ghost' }), null);
+    assert.equal(normalizeDevice({ mac: '', ip: '' }), null);
+    assert.equal(normalizeDevice(null as never), null);
+  });
+});
+
+describe('normalizeDeviceList', () => {
+  it('extracts list from a MiWiFi-shaped payload', () => {
+    const devices = normalizeDeviceList({
+      code: 0,
+      list: [
+        { mac: 'AA:BB:CC:DD:EE:01', online: true, ip: '192.168.31.2' },
+        { mac: 'AA:BB:CC:DD:EE:02', online: false }
+      ]
+    });
+    assert.equal(devices.length, 2);
+  });
+
+  it('tolerates malformed payloads without throwing', () => {
+    assert.deepEqual(normalizeDeviceList(null), []);
+    assert.deepEqual(normalizeDeviceList('string'), []);
+    assert.deepEqual(normalizeDeviceList({ code: 0 }), []);
+    assert.deepEqual(normalizeDeviceList({ list: [null, 5, { name: 'no-ids' }] }), []);
+  });
+});
+
+describe('normalizeRouterStatus', () => {
+  it('parses numeric + wan fields defensively', () => {
+    const status = normalizeRouterStatus({
+      cpu: 23,
+      mem: 45,
+      memTotal: 128,
+      wan: 'up',
+      count: 7
+    });
+    assert.deepEqual(status, {
+      cpuLoad: 23,
+      memUsed: 45,
+      memTotal: 128,
+      wanUp: true,
+      deviceCount: 7
+    });
+  });
+
+  it('returns undefined fields for garbage payloads', () => {
+    const status = normalizeRouterStatus({ cpu: 'abc', wan: 42 });
+    assert.equal(status.cpuLoad, undefined);
+    assert.equal(status.wanUp, undefined);
+  });
+});
+
+describe('presence transitions', () => {
+  it('emits ONLINE/OFFLINE only on actual changes', () => {
+    assert.deepEqual(transitionForExisting({ online: false }, true), { kind: 'ONLINE' });
+    assert.deepEqual(transitionForExisting({ online: true }, false), { kind: 'OFFLINE' });
+    assert.equal(transitionForExisting({ online: true }, true), null);
+    assert.equal(transitionForExisting({ online: false }, false), null);
+  });
+});
+
+describe('reconcilePresence', () => {
+  it('computes FIRST_SEEN, ONLINE, OFFLINE and skips no-ops', () => {
+    const observed = new Map([
+      ['mac:A:1', { online: true }],   // new, online -> FIRST_SEEN
+      ['mac:A:2', { online: true }],   // stored offline -> ONLINE
+      ['mac:A:3', { online: true }],   // unchanged -> nothing
+      ['mac:A:4', { online: false }]    // new but offline -> nothing
+    ]);
+    const stored = new Map([
+      ['mac:A:2', { online: false }],
+      ['mac:A:3', { online: true }],
+      ['mac:A:9', { online: true }]     // missing from pass -> OFFLINE
+    ]);
+    const { events } = reconcilePresence(observed, stored);
+    const kinds = events.map((e) => `${e.key}:${e.kind}`).sort();
+    assert.deepEqual(kinds, [
+      'mac:A:1:FIRST_SEEN',
+      'mac:A:2:ONLINE',
+      'mac:A:9:OFFLINE'
+    ]);
+  });
+
+  it('deviceKey prefers mac, falls back to ip, rejects empty', () => {
+    assert.equal(deviceKey('AA:1', '192.0.2.1'), 'mac:AA:1');
+    assert.equal(deviceKey(undefined, '192.0.2.1'), 'ip:192.0.2.1');
+    assert.equal(deviceKey(undefined, undefined), null);
+  });
+});

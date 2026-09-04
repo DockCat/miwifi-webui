@@ -54,3 +54,29 @@ export type { FixtureScenario } from './fixture-transport.js';
 
 export { HttpRouterTransport } from './http-transport.js';
 export type { HttpRouterTransportOptions } from './http-transport.js';
+
+// --- Observability domain (Task 0004) ---
+
+export {
+  normalizeDevice,
+  normalizeDeviceList,
+  normalizeRouterStatus
+} from './device-normalization.js';
+export type {
+  NormalizedDevice,
+  RawDeviceEntry,
+  NormalizedRouterStatus
+} from './device-normalization.js';
+
+export {
+  transitionForExisting,
+  firstSeenTransition,
+  reconcilePresence,
+  deviceKey
+} from './presence.js';
+export type {
+  PresenceEventKind,
+  PresenceTransition,
+  StoredDeviceState,
+  KeyedTransition
+} from './presence.js';
