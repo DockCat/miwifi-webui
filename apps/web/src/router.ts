@@ -8,6 +8,7 @@ export type Route =
   | { page: 'devices'; deviceId?: string }
   | { page: 'network' }
   | { page: 'events' }
+  | { page: 'investigations' }
   | { page: 'settings' };
 
 function parseHash(hash: string): Route {
@@ -20,6 +21,8 @@ function parseHash(hash: string): Route {
       return { page: 'network' };
     case 'events':
       return { page: 'events' };
+    case 'investigations':
+      return { page: 'investigations' };
     case 'settings':
       return { page: 'settings' };
     default:
@@ -55,6 +58,9 @@ export function useRoute(): [Route, (next: Route) => void] {
         break;
       case 'events':
         hash = '#/events';
+        break;
+      case 'investigations':
+        hash = '#/investigations';
         break;
       case 'settings':
         hash = '#/settings';

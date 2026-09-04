@@ -10,6 +10,7 @@ import { useRoute } from './router.js';
 import { DashboardView } from './views/DashboardView.js';
 import { DevicesView } from './views/DevicesView.js';
 import { EventsView, NetworkView } from './views/NetworkEventsView.js';
+import { InvestigationsView } from './views/InvestigationsView.js';
 import { SettingsView } from './views/SettingsView.js';
 import { useLiveEvents } from './use-live-events.js';
 
@@ -111,6 +112,11 @@ export function App() {
               onClick={() => navigate({ page: 'events' })}
             />
             <NavItem
+              label={t('nav.investigations')}
+              active={route.page === 'investigations'}
+              onClick={() => navigate({ page: 'investigations' })}
+            />
+            <NavItem
               label={t('nav.settings')}
               active={route.page === 'settings'}
               onClick={() => navigate({ page: 'settings' })}
@@ -134,6 +140,7 @@ export function App() {
           )}
           {route.page === 'network' && <NetworkView router={activeRouter} />}
           {route.page === 'events' && <EventsView router={activeRouter} />}
+          {route.page === 'investigations' && <InvestigationsView router={activeRouter} />}
           {route.page === 'settings' && (
             <SettingsView
               router={activeRouter}

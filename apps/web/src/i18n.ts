@@ -24,6 +24,7 @@ const messages = {
     'nav.devices': 'Devices',
     'nav.network': 'Network',
     'nav.events': 'Events',
+    'nav.investigations': 'Investigations',
     'nav.settings': 'Settings',
     'login.title': 'Sign in',
     'login.username': 'Username',
@@ -76,7 +77,16 @@ const messages = {
     'common.save': 'Save',
     'presence.FIRST_SEEN': 'First seen',
     'presence.ONLINE': 'Came online',
-    'presence.OFFLINE': 'Went offline'
+    'presence.OFFLINE': 'Went offline',
+    'investigations.title': 'Investigations',
+    'investigations.question_label': 'Ask a question about your network',
+    'investigations.submit': 'Investigate',
+    'investigations.empty': 'No investigations yet.',
+    'investigations.finding': 'Finding',
+    'investigations.evidence': 'Evidence',
+    'investigations.no_evidence': 'No evidence linked.',
+    'investigations.disabled_hint': 'AI is disabled. Configure a provider (see .env.example).',
+    'investigations.placeholder': 'Why did the TV lose connectivity at 14:32?'
   },
   'zh-CN': {
     'app.title': 'miwifi-webui',
@@ -85,6 +95,7 @@ const messages = {
     'nav.devices': '设备',
     'nav.network': '网络',
     'nav.events': '事件',
+    'nav.investigations': '调查',
     'nav.settings': '设置',
     'login.title': '登录',
     'login.username': '用户名',
@@ -136,7 +147,16 @@ const messages = {
     'common.save': '保存',
     'presence.FIRST_SEEN': '首次发现',
     'presence.ONLINE': '已上线',
-    'presence.OFFLINE': '已离线'
+    'presence.OFFLINE': '已离线',
+    'investigations.title': '网络调查',
+    'investigations.question_label': '提出一个关于网络的问题',
+    'investigations.submit': '开始调查',
+    'investigations.empty': '暂无调查记录。',
+    'investigations.finding': '调查结论',
+    'investigations.evidence': '证据',
+    'investigations.no_evidence': '未关联证据。',
+    'investigations.disabled_hint': 'AI 未启用。请先配置 provider（见 .env.example）。',
+    'investigations.placeholder': '为什么电视在 14:32 失去连接？'
   }
 } as const;
 

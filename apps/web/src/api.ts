@@ -131,5 +131,30 @@ export const api = {
     request<{ status: string; state: string }>(
       `/api/routers/${routerId}/devices/${deviceId}/unblock`,
       { method: 'POST' }
+    ),
+
+  listInvestigations: () =>
+    request<{ investigations: InvestigationSummary[] }>('/api/investigations'),
+
+  investigation: (id: string) =>
+    request<{
+      investigation: InvestigationSummary;
+      evidence: { id: string; kind: string; evidenceId: string }[];
+    }>(`/api/investigations/${id}`),
+
+  createInvestigation: (routerId: string, question: string) =>
+    request<{ investigationId: string; status: string; finding: string }>(
+      '/api/investigations',
+      { method: 'POST', body: JSON.stringify({ routerId, question }) }
     )
 };
+
+export interface InvestigationSummary {
+  id: string;
+  status: 'running' | 'completed' | 'failed';
+  question: string;
+  finding: string | null;
+  provider: string;
+  createdAt: string;
+  completedAt: string | null;
+}

@@ -21,6 +21,8 @@ import { registerHealthRoutes } from './routes/health.js';
 import { registerRouterRoutes } from './routes/router.js';
 import { registerObservabilityRoutes } from './routes/observability.js';
 import { registerMutationRoutes } from './routes/mutations.js';
+import { registerInvestigationRoutes } from './routes/investigations.js';
+import { InvestigationRepository } from './ai/repository.js';
 import type pg from 'pg';
 
 export interface BuildAppOptions {
@@ -67,6 +69,11 @@ export async function buildApp(
     routerRepository,
     observabilityRepository,
     audit
+  });
+  registerInvestigationRoutes(app, {
+    repository: new InvestigationRepository(pool),
+    audit,
+    pool
   });
 
   return app;

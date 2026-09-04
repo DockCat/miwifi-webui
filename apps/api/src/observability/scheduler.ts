@@ -47,6 +47,7 @@ export class PollingScheduler {
   private readonly config: PollingConfig;
   /** Most recent in-memory status per router (never persisted on read). */
   private latestStatus = new Map<string, Record<string, unknown>>();
+  private investigationPurgeDays = 30;
 
   constructor(
     private readonly pool: pg.Pool,
@@ -72,19 +73,35 @@ export class PollingScheduler {
     const statusTimer = setInterval(() => void this.pollStatusAll(), this.config.statusIntervalMs);
     const inventoryTimer = setInterval(() => void this.pollInventoryAll(), this.config.inventoryIntervalMs);
     const telemetryTimer = setInterval(() => void this.persistTelemetryAll(), this.config.telemetryIntervalMs);
-    for (const timer of [statusTimer, inventoryTimer, telemetryTimer]) {
+    const retentionTimer = setInterval(() => void this.purgeInvestigations(), 24 * 60 * 60 * 1000);
+    for (const timer of [statusTimer, inventoryTimer, telemetryTimer, retentionTimer]) {
       timer.unref?.();
       this.timers.push(timer);
     }
     // Prime immediately rather than waiting a full interval.
     void this.pollStatusAll();
     void this.pollInventoryAll();
+    void this.purgeInvestigations();
   }
 
   stop(): void {
     this.running = false;
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];
+  }
+
+  /** Daily: purge investigation content past the retention window. */
+  private async purgeInvestigations(): Promise<void> {
+    try {
+      const { InvestigationRepository } = await import('../ai/repository.js');
+      const repository = new InvestigationRepository(this.pool);
+      const purged = await repository.purgeOlderThan(this.investigationPurgeDays);
+      if (purged > 0) {
+        this.events.publish('retention', { purged_investigations: purged });
+      }
+    } catch {
+      // Retention is best-effort per pass; next run retries.
+    }
   }
 
   private async activeRouters(): Promise<ActiveRouter[]> {
