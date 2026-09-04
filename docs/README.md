@@ -176,6 +176,17 @@ Current documents:
 ### Tasks
 
 * [0001 — Project Bootstrap](tasks/0001-project-bootstrap.md)
+* [0002 — Security / Auth Foundation](tasks/0002-auth-foundation.md)
+* [0003 — MiWifiAdapter / Compatibility-Probe Foundation](tasks/0003-adapter-foundation.md)
+* [0004 — Observability](tasks/0004-observability.md)
+* [0005 — Operational UI](tasks/0005-operational-ui.md)
+* [0006 — Limited Administration](tasks/0006-mutations.md)
+* [0007 — AI Investigation](tasks/0007-ai-investigation.md)
+* [0008 — Hardening](tasks/0008-hardening.md)
+
+### Operations
+
+* [Backup and Restore](backup-restore.md)
 
 ### ADRs
 

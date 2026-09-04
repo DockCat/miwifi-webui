@@ -354,7 +354,7 @@ ADRs are reserved for decisions that are expensive or risky to reverse.
 
 ## Development status
 
-The repository has completed project bootstrap (`docs/tasks/0001-project-bootstrap.md`): a pnpm TypeScript workspace with a React/Vite frontend (`apps/web`), a Fastify backend (`apps/api`), shared API contracts (`packages/contracts`), router domain types (`packages/router-core`), PostgreSQL via Docker Compose, and a committed migration foundation. Router integration, authentication, and AI features are not implemented yet.
+The repository has completed project bootstrap and the first feature phases (`docs/tasks/0001`–`0008`): authentication (Argon2id + sessions + CSRF), MiWifiAdapter with capability-driven compatibility probing, observability (polling, telemetry, presence events, SSE), operational UI (dashboard/devices/events/settings), device Internet block/unblock (the only v1 mutation), and the optional read-only AI investigation layer. Router support is capability-driven and exercised through fixtures; a real router is not required for development or tests.
 
 ## Development workflow
 
@@ -413,6 +413,8 @@ This starts both apps in parallel:
 
 Endpoints: `GET /api/health` (liveness), `GET /api/ready` (database readiness).
 
+First run: open http://localhost:5173, create the administrator (bootstrap is localhost-only), then onboard your router under Settings.
+
 ### Test
 
 ```bash
@@ -442,6 +444,32 @@ Builds the web production bundle (`apps/web/dist`) and the API server bundle (`a
 ```bash
 pnpm --filter @miwifi-webui/api start
 ```
+
+## Environment variable reference
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | PostgreSQL connection string |
+| `API_PORT` / `API_HOST` | no | API listen port (3001) / host (127.0.0.1) |
+| `APP_MASTER_KEY` | for routers | 32-byte base64 master key sealing router credentials (`openssl rand -base64 32`); must live outside PostgreSQL |
+| `LOG_LEVEL` | no | pino level (info) |
+| `AI_PROVIDER_MODE` | no | `local` / `external` (unset = AI disabled) |
+| `AI_PROVIDER_BASE_URL` / `AI_PROVIDER_MODEL` | for AI | OpenAI-compatible endpoint + model |
+| `AI_PROVIDER_API_KEY` | no | Provider API key when required |
+| `AI_EGRESS_ALLOW_MAC` / `_IP` / `_NAMES` | no | External-provider data categories; default false (pseudonymized) |
+| `RETENTION_TELEMETRY_DAYS` | no | Default 90 |
+| `RETENTION_PRESENCE_DAYS` | no | Default 365 |
+| `RETENTION_AUDIT_DAYS` | no | Default 365 |
+| `RETENTION_INVESTIGATION_DAYS` | no | Default 30 |
+
+## Operational notes
+
+* **First-run bootstrap** creates the single administrator and then closes permanently (localhost-only; ADR 0003). Local recovery: `pnpm --filter @miwifi-webui/api admin:reset-password <username>` with `ADMIN_PASSWORD` in the environment.
+* **Router credentials** are sealed with AES-256-GCM under `APP_MASTER_KEY`; losing the key makes stored credentials unrecoverable.
+* **AI is disabled by default** and fully read-only when enabled; external providers receive pseudonymized context unless data categories are explicitly allowed.
+* **Retention** runs as a daily scheduled pass; see the table above for defaults.
+* **Backup/restore**: see [docs/backup-restore.md](docs/backup-restore.md) — the master key must be stored separately from database backups.
+* **LAN deployment**: use HTTPS (reverse proxy or trusted CA) for authenticated LAN access; cookies reflect the actual protocol.
 
 ## Upstream reference
 

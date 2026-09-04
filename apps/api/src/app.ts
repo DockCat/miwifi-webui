@@ -51,6 +51,19 @@ export async function buildApp(
 
   await app.register(cookie);
 
+  // Global error handler: unhandled failures return a clean JSON error —
+  // never connection strings, stack traces, or driver messages (which can
+  // embed DB host:port).
+  app.setErrorHandler((error: unknown, _request, reply) => {
+    const err = error as { name?: string; message?: string; statusCode?: number };
+    app.log.error(
+      { err: { name: err.name, message: err.message } },
+      'unhandled request error'
+    );
+    const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
+    return reply.code(status).send({ error: 'internal' });
+  });
+
   const authRepository = new AuthRepository(pool);
   const audit = new AuditWriter(pool);
   const routerRepository = new RouterRepository(pool);

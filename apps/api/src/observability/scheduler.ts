@@ -22,6 +22,7 @@ import type { NormalizedDevice } from '@miwifi-webui/router-core';
 import type { RouterRepository } from '../router/repository.js';
 import type { ObservabilityRepository } from './repository.js';
 import type { EventBridge } from './event-bridge.js';
+import { loadRetentionPolicy, type RetentionPolicy } from '../retention/policy.js';
 
 export interface PollingConfig {
   readonly statusIntervalMs: number;
@@ -45,9 +46,9 @@ export class PollingScheduler {
   private timers: NodeJS.Timeout[] = [];
   private running = false;
   private readonly config: PollingConfig;
+  private readonly retention: RetentionPolicy;
   /** Most recent in-memory status per router (never persisted on read). */
   private latestStatus = new Map<string, Record<string, unknown>>();
-  private investigationPurgeDays = 30;
 
   constructor(
     private readonly pool: pg.Pool,
@@ -58,6 +59,7 @@ export class PollingScheduler {
     config: Partial<PollingConfig> = {}
   ) {
     this.config = { ...DEFAULT_POLLING_CONFIG, ...config };
+    this.retention = loadRetentionPolicy();
   }
 
   /** In-memory status snapshot for read endpoints (no DB write). */
@@ -90,14 +92,17 @@ export class PollingScheduler {
     this.timers = [];
   }
 
-  /** Daily: purge investigation content past the retention window. */
+  /** Daily: run the full retention pass across all categories. */
   private async purgeInvestigations(): Promise<void> {
     try {
-      const { InvestigationRepository } = await import('../ai/repository.js');
-      const repository = new InvestigationRepository(this.pool);
-      const purged = await repository.purgeOlderThan(this.investigationPurgeDays);
-      if (purged > 0) {
-        this.events.publish('retention', { purged_investigations: purged });
+      const { RetentionRepository } = await import('../retention/repository.js');
+      const repository = new RetentionRepository(this.pool);
+      const results = await repository.purgeAll(this.retention);
+      const total = results.reduce((sum, result) => sum + result.purged, 0);
+      if (total > 0) {
+        this.events.publish('retention', {
+          purged: Object.fromEntries(results.map((r) => [r.category, r.purged]))
+        });
       }
     } catch {
       // Retention is best-effort per pass; next run retries.
