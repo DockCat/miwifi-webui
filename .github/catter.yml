@@ -1,0 +1,27 @@
+version: 1
+project:
+  owner: DockCat
+  number: 5
+  status_field: Status
+agent:
+  provider: opencode
+  auth: api-key
+  model: opencode/mimo-v2.5-free
+runner:
+  type: github-hosted
+  labels:
+    - ubuntu-latest
+test:
+  commands:
+    - npm test
+phases:
+  test:
+    persona: qa-engineer
+    analysis:
+      solid: true
+      security: true
+      architecture: true
+limits:
+  fix_cycles: 2
+  infra_retries: 1
+  phase_timeout_minutes: 60

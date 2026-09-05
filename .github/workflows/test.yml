@@ -1,0 +1,1067 @@
+name: Catter Test
+
+on:
+  workflow_call:
+    inputs:
+      request_id: { required: true, type: string }
+      installation_id: { required: true, type: string }
+      repository_id: { required: true, type: string }
+      project_item_id: { required: true, type: string }
+      issue_number: { required: true, type: string }
+      config_sha: { required: true, type: string }
+      pr_number: { required: true, type: string }
+      branch: { required: true, type: string }
+      head_sha: { required: true, type: string }
+      agent_model: { required: false, type: string }
+    secrets:
+      opencode_api_key:
+        required: false
+
+permissions: {}
+
+jobs:
+  command-gate:
+    name: Default-branch Command Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      REPOSITORY: ${{ github.repository }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      REPOSITORY_ID: ${{ inputs.repository_id }}
+      INSTALLATION_ID: ${{ inputs.installation_id }}
+      PROJECT_ITEM_ID: ${{ inputs.project_item_id }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      BRANCH: ${{ inputs.branch }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      CONFIG_SHA: ${{ inputs.config_sha }}
+      STATE: /tmp/catter-command-gate
+    steps:
+      - name: Initialize command gate state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$STATE"
+          mkdir -p "$STATE/artifact"
+          printf '%s\n' '{"schema_version":1,"phase":"test","status":"failure","request_id":"invalid","error_code":"command_gate_not_run"}' > "$STATE/artifact/command-gate.json"
+          [[ "$REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          [[ "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ && "$INSTALLATION_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PROJECT_ITEM_ID" =~ ^[A-Za-z0-9_:-]{1,255}$ ]]
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]{0,9}$ && "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,255}$ && "$BRANCH" != *..* && "$BRANCH" != *"@{"* ]]
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$CONFIG_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Resolve exact linked pull request identity
+        id: identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          default_branch=$(gh api "repos/$REPOSITORY" --jq '.default_branch')
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '{number:.number,state:.state,head:{ref:.head.ref,sha:.head.sha,repo:{id:.head.repo.id,full_name:.head.repo.full_name}},base:{ref:.base.ref,sha:.base.sha,repo:{id:.base.repo.id,full_name:.base.repo.full_name}}}' > "$STATE/pr-identity.json"
+          python3 - "$STATE/pr-identity.json" "$REPOSITORY" "$REPOSITORY_ID" "$PR_NUMBER" "$BRANCH" "$HEAD_SHA" "$default_branch" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          raw = Path(sys.argv[1]).read_bytes()
+          if len(raw) > 65536: raise SystemExit("pull request evidence bound")
+          value = json.loads(raw.decode("utf-8"))
+          repository, repository_id, pr_number, branch, head_sha, default_branch = sys.argv[2:]
+          base = value.get("base", {})
+          head = value.get("head", {})
+          base_repo = base.get("repo", {})
+          head_repo = head.get("repo", {})
+          if value.get("number") != int(pr_number) or value.get("state") != "open" or head.get("ref") != branch or head.get("sha") != head_sha or head_repo.get("id") != int(repository_id) or head_repo.get("full_name") != repository or base_repo.get("id") != int(repository_id) or base_repo.get("full_name") != repository or base.get("ref") != default_branch or not re.fullmatch(r"[0-9a-f]{40}", head_sha) or not re.fullmatch(r"[0-9a-f]{40}", str(base.get("sha", ""))):
+              raise SystemExit("linked pull request identity mismatch")
+          print(head_sha)
+          PY
+
+      - name: Checkout complete PR repository without persisted credential
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Verify checkout credential boundary
+        if: ${{ steps.checkout.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git -C "$GITHUB_WORKSPACE" config --local --get-regexp '^credential\.' >/dev/null 2>&1; then
+            echo 'checkout credential helper present' >&2
+            exit 1
+          fi
+          remote=$(git -C "$GITHUB_WORKSPACE" config --local --get remote.origin.url || true)
+          case "$remote" in *://*:*@*) echo 'checkout remote contains credentials' >&2; exit 1;; esac
+
+      - name: Read commands from captured default-branch configuration
+        id: config
+        if: ${{ steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CONFIG_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$REPOSITORY" > "$STATE/repository.json"
+          default_branch=$(python3 - "$STATE/repository.json" "$REPOSITORY" "$REPOSITORY_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          repository, repository_id = sys.argv[2], int(sys.argv[3])
+          if value.get("id") != repository_id or value.get("full_name") != repository or not isinstance(value.get("default_branch"), str):
+              raise SystemExit("repository identity mismatch")
+          print(value["default_branch"])
+          PY
+          )
+          [[ "$default_branch" =~ ^[A-Za-z0-9._/-]{1,255}$ && "$default_branch" != *..* && "$default_branch" != *"@{"* ]]
+          default_sha=$(gh api "repos/$REPOSITORY/branches/$default_branch" --jq '.commit.sha')
+          [[ "$default_sha" =~ ^[0-9a-f]{40}$ ]]
+          printf '%s\n' "$default_branch" > "$STATE/default-branch"
+          printf '%s\n' "$default_sha" > "$STATE/default-sha"
+          python3 - "$STATE/pr-identity.json" "$default_branch" "$default_sha" "$STATE/error-code" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          branch, sha, error_file = sys.argv[2:]
+          if value.get("base", {}).get("ref") != branch or value.get("base", {}).get("sha") != sha:
+              Path(error_file).write_text("pr_base_drift\n", encoding="utf-8")
+              raise SystemExit("pull request base changed")
+          PY
+          gh api "repos/$REPOSITORY/compare/$CONFIG_SHA...$default_sha" > "$STATE/config-compare.json"
+          python3 - "$STATE/config-compare.json" "$CONFIG_SHA" "$default_sha" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          config_sha, default_sha = sys.argv[2:]
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          head_sha = ((value.get("commits") or [{}])[-1].get("sha") or (value.get("head_commit") or {}).get("sha")) if value.get("status") == "ahead" else default_sha
+          if value.get("base_commit", {}).get("sha") != config_sha or value.get("merge_base_commit", {}).get("sha") != config_sha or value.get("status") not in {"ahead", "identical"} or value.get("commits", []) is None or head_sha != default_sha:
+              raise SystemExit("configuration is not an ancestor of the current default-branch head")
+          PY
+          gh api "repos/$REPOSITORY/contents/.github/catter.yml?ref=$CONFIG_SHA" > "$STATE/config-response.json"
+          python3 - "$STATE/config-response.json" "$STATE/config.yml" <<'PY'
+          import base64
+          import hashlib
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          source, output = map(Path, sys.argv[1:])
+          value = json.loads(source.read_text(encoding="utf-8"))
+          if value.get("encoding") != "base64" or value.get("path") != ".github/catter.yml": raise SystemExit("invalid config response")
+          data = base64.b64decode(re.sub(r"\s+", "", value["content"]), validate=True)
+          if len(data) > 65536: raise SystemExit("config too large")
+          output.write_bytes(data)
+          Path(str(output) + ".sha256").write_text(__import__("hashlib").sha256(data).hexdigest() + "\n", encoding="utf-8")
+          PY
+          ruby -ryaml - "$STATE/config.yml" "$STATE/commands.json" <<'RUBY'
+          require "json"
+          config = YAML.safe_load(File.read(ARGV[0]), permitted_classes: [], aliases: false)
+          commands = config.dig("test", "commands")
+          abort "invalid ordered command gate" unless config.is_a?(Hash) && config["version"] == 1 && commands.is_a?(Array) && commands.length.between?(1, 20)
+          abort "invalid command" unless commands.all? { |value| value.is_a?(String) && value.length.between?(1, 1000) && !value.match?(/[\u0000\r\n]/) }
+          File.write(ARGV[1], JSON.generate(commands), mode: "w", perm: 0o600)
+          RUBY
+
+      - name: Run exactly the configured Command Gates
+        id: commands
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          status=pass
+          error_code=null
+          exit_code=0
+          failed_index=null
+          command_count=0
+          now_ms() { python3 -c 'import time; print(time.time_ns() // 1000000)'; }
+          started_all=$(now_ms)
+          commands_file="$STATE/commands.json"
+          default_branch=""
+          default_sha=""
+          explicit_error=""
+          [[ -r "$STATE/default-branch" ]] && default_branch=$(tr -d '[:space:]' < "$STATE/default-branch")
+          [[ -r "$STATE/default-sha" ]] && default_sha=$(tr -d '[:space:]' < "$STATE/default-sha")
+          [[ -r "$STATE/error-code" ]] && explicit_error=$(tr -d '[:space:]' < "$STATE/error-code")
+          if [[ -n "$explicit_error" ]]; then
+            status=failure
+            error_code="$explicit_error"
+            exit_code=1
+          elif [[ ! -s "$commands_file" || ! -d "$GITHUB_WORKSPACE/.git" ]]; then
+            status=failure
+            error_code=command_gate_unavailable
+            exit_code=1
+          else
+            while IFS= read -r command; do
+              index=$command_count
+              command_count=$((command_count + 1))
+              started=$(now_ms)
+              unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL
+              timeout --signal=TERM --kill-after=10s 120 env -u REPOSITORY -u REQUEST_ID -u REPOSITORY_ID -u INSTALLATION_ID -u PROJECT_ITEM_ID -u ISSUE_NUMBER -u PR_NUMBER -u BRANCH -u HEAD_SHA -u CONFIG_SHA bash -euo pipefail -c "$command" 2>&1 |
+                {
+                  head -c 4194304 > "$STATE/command-$index.log"
+                  cat > /dev/null
+                }
+              code=${PIPESTATUS[0]}
+              duration=$(( $(now_ms) - started ))
+              printf '%s\n' "$code $duration" > "$STATE/command-$index.meta"
+              exit_code=$code
+              if [[ "$code" -ne 0 ]]; then
+                status=failure
+                error_code=command_failed
+                failed_index=$index
+                break
+              fi
+            done < <(python3 - "$commands_file" <<'PY'
+          import json
+          import sys
+          for command in json.load(open(sys.argv[1], encoding="utf-8")):
+              print(command)
+          PY
+            )
+            if [[ "$status" == pass && "$command_count" -eq 0 ]]; then
+              status=failure
+              error_code=command_gate_unavailable
+              exit_code=1
+            fi
+          fi
+          duration=$(( $(now_ms) - started_all ))
+          python3 - "$STATE/artifact/command-gate.json" "$REQUEST_ID" "$REPOSITORY_ID" "$INSTALLATION_ID" "$PROJECT_ITEM_ID" "$ISSUE_NUMBER" "$PR_NUMBER" "$BRANCH" "$CONFIG_SHA" "$status" "$error_code" "$exit_code" "$duration" "$command_count" "$failed_index" "$STATE" "${default_branch:-}" "${default_sha:-}" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+          output, request_id, repository_id, installation_id, project_item_id, issue_number, pr_number, branch, config_sha, status, error_code, exit_code, duration, count, failed, state, default_branch, default_sha = sys.argv[1:]
+          commands = []
+          for index in range(int(count)):
+              code, elapsed = (Path(state) / f"command-{index}.meta").read_text(encoding="utf-8").split()
+              commands.append({"index": index, "exit_code": int(code), "duration_ms": int(elapsed)})
+          failure_summary = None
+          if failed != "null":
+              log_path = Path(state) / f"command-{failed}.log"
+              if log_path.is_file():
+                  raw_log = log_path.read_text(encoding="utf-8", errors="replace")
+                  if "not ok " in raw_log:
+                      failing_blocks = []
+                      in_failure = False
+                      for line in raw_log.splitlines():
+                          stripped = line.strip()
+                          if line.startswith("not ok "):
+                              in_failure = True
+                              failing_blocks.append(line)
+                          elif in_failure:
+                              if line.startswith("ok ") or stripped == "...":
+                                  in_failure = False
+                              elif any(k in stripped for k in ("location:", "error:", "name:", "code:", "expected:", "actual:", "at ")) and not stripped.startswith("type:"):
+                                  failing_blocks.append("  " + stripped)
+                      if failing_blocks:
+                          failure_summary = "\n".join(failing_blocks[:35])[:2000]
+                  if not failure_summary:
+                      idx = raw_log.rfind("failing tests:")
+                      if idx != -1:
+                          start = max(0, raw_log.rfind("\n", 0, idx))
+                          failure_summary = raw_log[start:start + 2000].strip()
+                      else:
+                          lines = [l for l in raw_log.splitlines() if l.strip()]
+                          failure_summary = "\n".join(lines[-45:])[:2000]
+          def integer(name):
+              try: return max(1, int(os.environ.get(name, "1")))
+              except (TypeError, ValueError): return 1
+          workflow = {"name": os.environ.get("GITHUB_WORKFLOW", "Catter Test"), "run_id": integer("GITHUB_RUN_ID"), "run_attempt": integer("GITHUB_RUN_ATTEMPT"), "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", "DockCat/Catter/.github/workflows/test.yml@unknown")}
+          config_hash = None
+          try: config_hash = (Path(state) / "config.yml.sha256").read_text(encoding="utf-8").strip()
+          except OSError: pass
+          metadata = {"command_count": int(count), "duration_ms": int(duration)}
+          if failure_summary:
+              metadata["failure_summary"] = failure_summary
+          value = {"schema_version": 1, "phase": "test", "request_id": request_id, "repository_id": int(repository_id), "repository_full_name": os.environ.get("REPOSITORY", "owner/repo"), "installation_id": int(installation_id), "project_item_id": project_item_id, "issue_number": int(issue_number), "pr_number": int(os.environ.get("PR_NUMBER", "0") or 0), "branch": branch, "head_sha": os.environ.get("HEAD_SHA", "0" * 40), "config_sha": config_sha, "workflow": workflow, "default_branch": default_branch, "default_sha": default_sha, "base_branch": default_branch or None, "base_sha": default_sha or None, "status": status, "exit_code": int(exit_code), "duration_ms": int(duration), "command_count": int(count), "failed_index": None if failed == "null" else int(failed), "commands": commands, "error_code": None if error_code == "null" else error_code, "hashes": {"config_sha256": config_hash}, "metadata": metadata}
+          Path(output).write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Upload Command Gate evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: catter-test-gates-${{ inputs.request_id }}
+          path: ${{ env.STATE }}/artifact/command-gate.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Preserve real Command Gate conclusion
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          test "$(python3 -c 'import json; print(json.load(open("'"$STATE/artifact/command-gate.json"'"))["status"])')" = pass
+
+  opencode-qa:
+    name: OpenCode QA (read-only provider)
+    needs: command-gate
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    env:
+      REPOSITORY: ${{ github.repository }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      REPOSITORY_ID: ${{ inputs.repository_id }}
+      INSTALLATION_ID: ${{ inputs.installation_id }}
+      PROJECT_ITEM_ID: ${{ inputs.project_item_id }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      BRANCH: ${{ inputs.branch }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      CONFIG_SHA: ${{ inputs.config_sha }}
+      AGENT_MODEL: ${{ inputs.agent_model }}
+      STATE: /tmp/catter-opencode-qa
+    steps:
+      - name: Initialize QA state
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$STATE"
+          mkdir -p "$STATE/artifact"
+          printf '%s\n' '{"schema_version":1,"phase":"test","status":"failure","request_id":"invalid","blocking_findings":[],"advisory_findings":[],"error_code":"qa_not_run"}' > "$STATE/artifact/qa.json"
+          [[ "$REQUEST_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]
+          [[ "$REPOSITORY_ID" =~ ^[1-9][0-9]*$ && "$INSTALLATION_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$PROJECT_ITEM_ID" =~ ^[A-Za-z0-9_:-]{1,255}$ ]]
+          [[ "$ISSUE_NUMBER" =~ ^[1-9][0-9]{0,9}$ && "$PR_NUMBER" =~ ^[1-9][0-9]{0,9}$ ]]
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,255}$ && "$BRANCH" != *..* && "$BRANCH" != *"@{"* ]]
+          [[ "$CONFIG_SHA" =~ ^[0-9a-f]{40}$ ]]
+
+      - name: Validate agent model
+        env:
+          AGENT_MODEL: ${{ inputs.agent_model }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${AGENT_MODEL:-}" ]]; then
+            exit 0
+          fi
+          trimmed=$(echo "$AGENT_MODEL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          if [[ -z "$trimmed" ]]; then
+            exit 0
+          fi
+          if [[ ${#trimmed} -gt 80 ]]; then
+            echo "invalid agent model: length exceeds 80" >&2
+            exit 1
+          fi
+          bare="$trimmed"
+          if [[ "$bare" =~ ^opencode/(.*)$ ]]; then
+            bare="${BASH_REMATCH[1]}"
+          fi
+          if [[ ! "$bare" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]]; then
+            echo "invalid agent model: format violation" >&2
+            exit 1
+          fi
+
+      - name: Download bounded Command Gate evidence
+        id: gate-artifact
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: catter-test-gates-${{ inputs.request_id }}
+          path: ${{ env.STATE }}/gate
+
+      - name: Checkout complete PR repository without persisted credential
+        id: checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: false
+
+      - name: Verify QA checkout credential boundary
+        if: ${{ steps.checkout.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)" = "$HEAD_SHA"
+          if git -C "$GITHUB_WORKSPACE" config --local --get-regexp '^credential\.' >/dev/null 2>&1; then exit 1; fi
+          remote=$(git -C "$GITHUB_WORKSPACE" config --local --get remote.origin.url || true)
+          case "$remote" in *://*:*@*) exit 1;; esac
+
+      - name: Fetch bounded Issue and PR evidence
+        id: context
+        if: ${{ steps.checkout.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$REPOSITORY/issues/$ISSUE_NUMBER" --jq '{number,title,body}' > "$STATE/issue.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER" --jq '{number:.number,title:.title,body:.body,state:.state,draft:.draft,head:{ref:.head.ref,sha:.head.sha,repo:{id:.head.repo.id,full_name:.head.repo.full_name}},base:{ref:.base.ref,sha:.base.sha,repo:{id:.base.repo.id,full_name:.base.repo.full_name}}}' > "$STATE/pr.json"
+          gh api "repos/$REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '[.[].filename]' > "$STATE/files.json"
+          python3 - "$STATE/issue.json" "$STATE/pr.json" "$STATE/files.json" "$STATE/gate/command-gate.json" "$STATE/context.json" "$REPOSITORY" "$REPOSITORY_ID" "$ISSUE_NUMBER" "$PR_NUMBER" "$BRANCH" "$HEAD_SHA" "$CONFIG_SHA" "$REQUEST_ID" "$INSTALLATION_ID" "$PROJECT_ITEM_ID" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          issue_path, pr_path, files_path, gate_path, context_path, repository, repository_id, issue_number, pr_number, branch, head_sha, config_sha, request_id, installation_id, project_item_id = sys.argv[1:]
+          def bounded(path):
+              value = json.loads(Path(path).read_text(encoding="utf-8"))
+              if len(json.dumps(value, separators=(",", ":"))) > 65536: raise SystemExit("evidence bound")
+              return value
+          issue, pr, files, gate = bounded(issue_path), bounded(pr_path), bounded(files_path), bounded(gate_path)
+          if not isinstance(issue, dict) or not isinstance(pr, dict) or not isinstance(files, list) or not isinstance(gate, dict) or not all(isinstance(f, str) for f in files):
+              raise SystemExit("evidence structure")
+          head, base = pr.get("head", {}), pr.get("base", {})
+          head_repo, base_repo = head.get("repo", {}), base.get("repo", {})
+          if issue.get("number") != int(issue_number) or pr.get("number") != int(pr_number) or pr.get("state") != "open" or head.get("ref") != branch or head.get("sha") != head_sha or head_repo.get("id") != int(repository_id) or head_repo.get("full_name") != repository or base_repo.get("id") != int(repository_id) or base_repo.get("full_name") != repository or base.get("ref") != gate.get("default_branch") or base.get("sha") != gate.get("default_sha") or gate.get("request_id") != request_id:
+              raise SystemExit("evidence identity")
+          if gate.get("installation_id") != int(installation_id) or gate.get("project_item_id") != project_item_id:
+              raise SystemExit("gate identity")
+          Path(context_path).write_text(json.dumps({"issue": issue, "pull_request": pr, "changed_files": files[:50], "command_gate": gate, "config_sha": config_sha, "head_sha": head_sha}, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          PY
+
+      - name: Install exact OpenCode CLI and package pins
+        id: cli
+        if: ${{ steps.context.outcome == 'success' }}
+        env:
+          NPM_CONFIG_CACHE: ${{ runner.temp }}/catter-opencode-npm-cache
+          CLI_VERSION: 1.18.18
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/catter-opencode-package" "$RUNNER_TEMP/catter-opencode-prefix"
+          for package in opencode-ai opencode-linux-x64 opencode-linux-x64-baseline; do
+            npm view "$package@$CLI_VERSION" version dist.integrity dist.tarball --json > "$RUNNER_TEMP/$package-registry.json"
+            npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP/catter-opencode-package" "$package@$CLI_VERSION" > "$RUNNER_TEMP/$package-pack.json"
+          done
+          python3 - \
+            "$RUNNER_TEMP/opencode-ai-registry.json" "$RUNNER_TEMP/opencode-ai-pack.json" \
+            "$RUNNER_TEMP/opencode-linux-x64-registry.json" "$RUNNER_TEMP/opencode-linux-x64-pack.json" \
+            "$RUNNER_TEMP/opencode-linux-x64-baseline-registry.json" "$RUNNER_TEMP/opencode-linux-x64-baseline-pack.json" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          expected = {
+              "opencode-ai": ("sha512-J+5HFq8tf+wPBBpBpMPSNjSytF2/EkNWYfFZh4si1d9auFbQriqDyqZv+vFUsLWERfdMU32Eajwuiq3rKBvZLQ==", "https://registry.npmjs.org/opencode-ai/-/opencode-ai-1.18.18.tgz"),
+              "opencode-linux-x64": ("sha512-WmeUnhljYJ252wywKTiW4bNDzsas2njpjPUEh0jM6HKNI4vFxJtREtzaWViY4AKEAcOkLWT8Ll17ixvcHz3AnA==", "https://registry.npmjs.org/opencode-linux-x64/-/opencode-linux-x64-1.18.18.tgz"),
+              "opencode-linux-x64-baseline": ("sha512-6GvFarhP0pDiXcE9Au8PWoqb9+ZLBIGKrhZxeVAmOJp/gJ8lLL1Eno8O1qpqRb1KjOfOaOD71jHu9xNaqmjEtw==", "https://registry.npmjs.org/opencode-linux-x64-baseline/-/opencode-linux-x64-baseline-1.18.18.tgz"),
+          }
+          for package, registry_path, pack_path in zip(expected, sys.argv[1::2], sys.argv[2::2]):
+              registry = json.loads(Path(registry_path).read_text(encoding="utf-8")); packed = json.loads(Path(pack_path).read_text(encoding="utf-8")); integrity, tarball = expected[package]
+              if registry.get("version") != "1.18.18" or registry.get("dist.integrity") != integrity or registry.get("dist.tarball") != tarball or not isinstance(packed, list) or len(packed) != 1 or packed[0].get("integrity") != integrity or packed[0].get("filename") != f"{package}-1.18.18.tgz": raise SystemExit("npm pin changed")
+          PY
+          npm install --prefix "$RUNNER_TEMP/catter-opencode-prefix" --no-audit --no-fund --package-lock=false \
+            "$RUNNER_TEMP/catter-opencode-package/opencode-ai-$CLI_VERSION.tgz" \
+            "$RUNNER_TEMP/catter-opencode-package/opencode-linux-x64-$CLI_VERSION.tgz" \
+            "$RUNNER_TEMP/catter-opencode-package/opencode-linux-x64-baseline-$CLI_VERSION.tgz"
+          test "$("$RUNNER_TEMP/catter-opencode-prefix/node_modules/.bin/opencode" --version)" = "$CLI_VERSION"
+          test "$(node -p "require('$RUNNER_TEMP/catter-opencode-prefix/node_modules/opencode-linux-x64/package.json').version")" = "$CLI_VERSION"
+          test "$(node -p "require('$RUNNER_TEMP/catter-opencode-prefix/node_modules/opencode-linux-x64-baseline/package.json').version")" = "$CLI_VERSION"
+
+      - name: Check provider key before OpenCode QA
+        id: key
+        if: ${{ steps.context.outcome == 'success' && steps.cli.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          OPENCODE_API_KEY: ${{ secrets.opencode_api_key }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${OPENCODE_API_KEY:-}" ]]
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL
+
+      - name: Run read-only OpenCode QA with bounded evidence
+        id: provider
+        if: ${{ steps.key.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          OPENCODE_API_KEY: ${{ secrets.opencode_api_key }}
+          OPENCODE_AUTO_SHARE: "false"
+          OPENCODE_DISABLE_AUTOUPDATE: "true"
+          OPENCODE_DISABLE_PRUNE: "false"
+          OPENCODE_DISABLE_DEFAULT_PLUGINS: "true"
+          OPENCODE_DISABLE_LSP_DOWNLOAD: "true"
+          OPENCODE_DISABLE_MODELS_FETCH: "true"
+          OPENCODE_CONFIG_CONTENT: >-
+            {"permission":{"read":"allow","edit":"deny","write":"deny","glob":"allow","grep":"allow","bash":"deny","webfetch":"deny","websearch":"deny","task":"deny","todowrite":"deny","skill":"deny","mcp":"deny"},"compaction":{"auto":true,"prune":true},"provider":{"opencode":{"options":{"timeout":900000,"headerTimeout":900000,"chunkTimeout":900000}}}}
+        shell: bash
+        run: |
+          set -euo pipefail
+          provider_credential="${OPENCODE_API_KEY:-}"
+          gh_credential="${GH_TOKEN:-}"
+          github_credential="${GITHUB_TOKEN:-}"
+          id_token_credential="${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+          runtime_credential="${ACTIONS_RUNTIME_TOKEN:-}"
+          runtime_url_credential="${ACTIONS_RUNTIME_URL:-}"
+          cache_url_credential="${ACTIONS_CACHE_URL:-}"
+          results_url_credential="${ACTIONS_RESULTS_URL:-}"
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL
+          python3 - "$STATE/context.json" "$STATE/prompt.txt" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          context = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          prompt = """Review ONLY the changes in this pull request against the repository read-only. Focus specifically on the modified files listed in changed_files. Do not inspect unrelated files. Return exactly one JSON object with exactly these top-level fields: status, blocking_findings, advisory_findings, summary. Each finding must have exactly these fields: id, category, file, line, summary, evidence. Blocking categories are only acceptance, regression, security, authentication, data_loss, runtime, and testability. Advisory-only categories are style, naming, solid, duplication, and architecture; they are never blocking. file must be a safe relative POSIX path of a modified file with no absolute, dot, dot-dot, or backslash components; line must be an integer from 1 through 1000000; id must be 1 through 256 characters; finding summary and evidence must each be 1 through 2048 characters; and the overall summary must be at most 4096 characters. status must be pass exactly when blocking_findings is empty, and fail exactly when it contains at least one valid concrete blocking finding. Do not include credentials or raw logs.""" + "\n" + json.dumps(context, sort_keys=True)
+          Path(sys.argv[2]).write_text(prompt, encoding="utf-8")
+          PY
+          now_ms() { python3 -c 'import time; print(time.time_ns() // 1000000)'; }
+          started=$(now_ms)
+          set +e
+          provider_bin="$RUNNER_TEMP/catter-opencode-prefix/node_modules/.bin/opencode"
+          provider_key_present=false
+          [[ -n "$provider_credential" ]] && provider_key_present=true
+          unset GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL
+          env_clean=true
+          for name in GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL; do
+            [[ -z "${!name:-}" ]] || env_clean=false
+          done
+          other_secret_like_env_count=0
+          for name in $(compgen -e); do
+            case "$name" in
+              OPENCODE_API_KEY|OPENCODE_AUTO_SHARE|OPENCODE_DISABLE_*|OPENCODE_CONFIG_CONTENT) continue ;;
+            esac
+            upper_name=${name^^}
+            case "$upper_name" in
+              *TOKEN*|*SECRET*|*KEY*|*PASSWORD*|*CREDENTIAL*|*AUTH*)
+                [[ -n "${!name:-}" ]] && other_secret_like_env_count=$((other_secret_like_env_count + 1))
+                ;;
+            esac
+          done
+          [[ "$other_secret_like_env_count" -eq 0 ]] || env_clean=false
+          mkfifo "$STATE/qa-stdout.pipe" "$STATE/qa-stderr.pipe"
+          cap_stream() {
+            local input=$1 output=$2 marker=$3
+            exec setsid python3 - "$input" "$output" "$marker" <<'PY'
+          import sys
+          from pathlib import Path
+
+          source, output, marker = map(Path, sys.argv[1:])
+          limit = 4 * 1024 * 1024
+          total = 0
+          overflow = False
+          with source.open("rb", buffering=0) as reader, output.open("wb") as writer:
+              while True:
+                  chunk = reader.read(65536)
+                  if not chunk:
+                      break
+                  if total < limit:
+                      writer.write(chunk[: limit - total])
+                  total += len(chunk)
+                  overflow = overflow or total > limit
+          if overflow:
+              marker.write_text("true\n", encoding="utf-8")
+          PY
+          }
+          cap_stream "$STATE/qa-stdout.pipe" "$STATE/qa-events.jsonl" "$STATE/qa-stdout-overflow" & stdout_cap_pid=$!
+          cap_stream "$STATE/qa-stderr.pipe" "$STATE/qa-stderr.log" "$STATE/qa-stderr-overflow" & stderr_cap_pid=$!
+          resolved_model="opencode/mimo-v2.5-free"
+          if [[ -n "${AGENT_MODEL:-}" ]]; then
+            trimmed=$(echo "$AGENT_MODEL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            if [[ -n "$trimmed" ]]; then
+              if [[ ${#trimmed} -gt 80 ]]; then
+                echo "invalid agent model: length exceeds 80" >&2
+                exit 1
+              fi
+              bare="$trimmed"
+              if [[ "$bare" =~ ^opencode/(.*)$ ]]; then
+                bare="${BASH_REMATCH[1]}"
+              fi
+              if [[ ! "$bare" =~ ^[a-z0-9][a-z0-9._-]{0,63}$ ]]; then
+                echo "invalid agent model: format violation" >&2
+                exit 1
+              fi
+              resolved_model="opencode/$bare"
+            fi
+          fi
+          provider_args=(
+            "$provider_bin"
+            --pure
+            run
+            --format json
+            --model
+            "$resolved_model"
+            --auto
+            --dir
+            "$GITHUB_WORKSPACE"
+            "$(cat "$STATE/prompt.txt")"
+          )
+          timeout --signal=TERM --kill-after=10s 900 "${provider_args[@]}" > "$STATE/qa-stdout.pipe" 2> "$STATE/qa-stderr.pipe"
+          code=$?
+          reader_forced=false
+          reader_cleanup_failed=false
+          reader_wait() {
+            local pid=$1
+            local deadline=$((SECONDS + 2))
+            while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.05; done
+            if kill -0 "$pid" 2>/dev/null; then
+              reader_forced=true
+              kill -TERM -- "-$pid" 2>/dev/null || true
+              deadline=$((SECONDS + 1))
+              while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.05; done
+              if kill -0 "$pid" 2>/dev/null; then
+                kill -KILL -- "-$pid" 2>/dev/null || true
+                deadline=$((SECONDS + 1))
+                while kill -0 "$pid" 2>/dev/null && (( SECONDS < deadline )); do sleep 0.05; done
+              fi
+            fi
+            if kill -0 "$pid" 2>/dev/null; then
+              reader_cleanup_failed=true
+              return 0
+            fi
+            wait "$pid" 2>/dev/null || true
+          }
+          reader_wait "$stdout_cap_pid"
+          reader_wait "$stderr_cap_pid"
+          rm -f "$STATE/qa-stdout.pipe" "$STATE/qa-stderr.pipe"
+          process_count=$(pgrep -f -- "$provider_bin" | wc -l | tr -d '[:space:]')
+          process_cleanup_verified=false
+          if [[ "$process_count" == "0" ]]; then process_cleanup_verified=true; fi
+          if [[ "$process_cleanup_verified" != true ]]; then
+            while IFS= read -r pid; do kill -TERM "$pid" 2>/dev/null || true; done < <(pgrep -f -- "$provider_bin" || true)
+            sleep 1
+            process_count=$(pgrep -f -- "$provider_bin" | wc -l | tr -d '[:space:]')
+            [[ "$process_count" == "0" ]] && process_cleanup_verified=true
+            if [[ "$process_cleanup_verified" != true ]]; then
+              while IFS= read -r pid; do kill -KILL "$pid" 2>/dev/null || true; done < <(pgrep -f -- "$provider_bin" || true)
+              process_count=$(pgrep -f -- "$provider_bin" | wc -l | tr -d '[:space:]')
+              [[ "$process_count" == "0" ]] && process_cleanup_verified=true
+            fi
+          fi
+          credential_match=false
+          for credential in "$provider_credential" "$gh_credential" "$github_credential" "$id_token_credential" "$runtime_credential" "$runtime_url_credential" "$cache_url_credential" "$results_url_credential"; do
+            if [[ -n "$credential" ]] && (grep -Fq -- "$credential" "$STATE/qa-events.jsonl" || grep -Fq -- "$credential" "$STATE/qa-stderr.log"); then
+              credential_match=true
+            fi
+          done
+          unset OPENCODE_API_KEY GH_TOKEN GITHUB_TOKEN ACTIONS_ID_TOKEN_REQUEST_TOKEN ACTIONS_RUNTIME_TOKEN ACTIONS_RUNTIME_URL ACTIONS_CACHE_URL ACTIONS_RESULTS_URL
+          printf '%s\n' "$env_clean" > "$STATE/qa-env-clean"
+          printf '%s\n' "$other_secret_like_env_count" > "$STATE/qa-other-secret-like-env-count"
+          printf '%s\n' "$provider_key_present" > "$STATE/qa-provider-key-present"
+          printf '%s\n' "$process_cleanup_verified" > "$STATE/qa-process-clean"
+          printf '%s\n' "$process_count" > "$STATE/qa-process-count"
+          printf '%s\n' "$credential_match" > "$STATE/qa-credential-match"
+          printf '%s\n' "$reader_forced" > "$STATE/qa-reader-forced"
+          printf '%s\n' "$reader_cleanup_failed" > "$STATE/qa-reader-cleanup-failed"
+          set -e
+          printf '%s\n' "$code" > "$STATE/qa-exit"
+          printf '%s\n' "$(( $(now_ms) - started ))" > "$STATE/qa-duration"
+          exit "$code"
+
+      - name: Normalize strict QA result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          exit_code=$(tr -d '[:space:]' < "$STATE/qa-exit" 2>/dev/null || echo 125)
+          duration=$(tr -d '[:space:]' < "$STATE/qa-duration" 2>/dev/null || echo -1)
+          python3 - "$STATE" "$STATE/artifact/qa.json" "$REQUEST_ID" "$REPOSITORY_ID" "$INSTALLATION_ID" "$PROJECT_ITEM_ID" "$ISSUE_NUMBER" "$PR_NUMBER" "$BRANCH" "$CONFIG_SHA" "$exit_code" "$duration" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+          state, output, request_id, repository_id, installation_id, project_item_id, issue_number, pr_number, branch, config_sha, exit_code, duration = sys.argv[1:]
+          state, output = Path(state), Path(output)
+          exit_code, duration = int(exit_code), int(duration)
+          head_sha = os.environ.get("HEAD_SHA", "0" * 40)
+          cap = 4 * 1024 * 1024
+          concrete = {"acceptance", "regression", "security", "authentication", "data_loss", "runtime", "testability"}
+          advisory_only = {"style", "naming", "solid", "duplication", "architecture"}
+          finding_fields = {"id", "category", "file", "line", "summary", "evidence"}
+          candidate_fields = {"status", "blocking_findings", "advisory_findings", "summary"}
+          checkout_root = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+          MAX_REFERENCED_FILE_BYTES = 4 * 1024 * 1024
+          def marker(name, default=False):
+              try: return (state / name).read_text(encoding="utf-8").strip() == "true"
+              except OSError: return default
+          def present(name):
+              try: return (state / name).stat().st_size > 0
+              except OSError: return False
+          def integer_marker(name, default=-1):
+              try: return int((state / name).read_text(encoding="utf-8").strip())
+              except (OSError, ValueError): return default
+          def valid_file_line(path, line):
+              try:
+                  candidate = checkout_root / path
+                  info = candidate.lstat()
+                  if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode): return False
+                  resolved = candidate.resolve(strict=True)
+                  resolved.relative_to(checkout_root)
+                  data = candidate.read_bytes()
+                  if len(data) > MAX_REFERENCED_FILE_BYTES: return False
+                  data.decode("utf-8")
+                  lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+                  return 1 <= line <= lines
+              except (OSError, UnicodeError, ValueError):
+                  return False
+          stdout = state / "qa-events.jsonl"
+          stderr = state / "qa-stderr.log"
+          stdout_bytes = stdout.stat().st_size if stdout.exists() else -1
+          stderr_bytes = stderr.stat().st_size if stderr.exists() else -1
+          overflow = present("qa-stdout-overflow") or present("qa-stderr-overflow") or stdout_bytes > cap or stderr_bytes > cap
+          provider_result = {"exit_code": exit_code, "duration_ms": duration, "stdout_bytes": stdout_bytes, "stderr_bytes": stderr_bytes, "stdout_truncated": present("qa-stdout-overflow"), "stderr_truncated": present("qa-stderr-overflow"), "event_count": -1, "candidate_count": -1, "credential_match": marker("qa-credential-match"), "environment_clean": marker("qa-env-clean"), "other_secret_like_env_count": integer_marker("qa-other-secret-like-env-count"), "provider_key_present": marker("qa-provider-key-present"), "process_cleanup_verified": marker("qa-process-clean"), "process_count": integer_marker("qa-process-count"), "reader_forced": marker("qa-reader-forced"), "reader_cleanup_failed": marker("qa-reader-cleanup-failed")}
+          gate_path = state / "gate" / "command-gate.json"
+          gate = {}
+          try: gate = json.loads(gate_path.read_text(encoding="utf-8"))
+          except (OSError, json.JSONDecodeError): pass
+          gate_hashes = gate.get("hashes") if isinstance(gate.get("hashes"), dict) else {}
+          base_branch = gate.get("default_branch") or None
+          base_sha = gate.get("default_sha") or None
+          command_gate_sha = hashlib.sha256(gate_path.read_bytes()).hexdigest() if gate_path.exists() else None
+          base = {"schema_version": 1, "phase": "test", "request_id": request_id, "repository_id": int(repository_id), "repository_full_name": os.environ.get("REPOSITORY", "owner/repo"), "installation_id": int(installation_id), "project_item_id": project_item_id, "issue_number": int(issue_number), "pr_number": int(pr_number), "branch": branch, "head_branch": branch, "head_sha": head_sha, "config_sha": config_sha, "base_branch": base_branch, "base_sha": base_sha, "workflow": {"name": os.environ.get("GITHUB_WORKFLOW", "Catter Test"), "run_id": max(1, int(os.environ.get("GITHUB_RUN_ID", "1"))), "run_attempt": max(1, int(os.environ.get("GITHUB_RUN_ATTEMPT", "1"))), "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", "DockCat/Catter/.github/workflows/test.yml@unknown")}, "status": "failure", "blocking_findings": [], "advisory_findings": [], "summary": "", "provider_result": provider_result, "error_code": "qa_infrastructure", "hashes": {"config_sha256": gate_hashes.get("config_sha256"), "command_gate_sha256": command_gate_sha, "qa_sha256": None}, "metadata": {"command_count": gate.get("command_count", 0) if isinstance(gate.get("command_count", 0), int) else 0, "duration_ms": duration, "qa_provider": "opencode"}}
+          error_code = None
+          candidate = None
+          candidates = []
+          events = []
+          raw = b""
+          decoded = ""
+          if exit_code != 0:
+              error_code = "qa_timeout" if exit_code == 124 else ("qa_killed" if exit_code == 137 else ("qa_terminated" if exit_code == 143 else "qa_infrastructure"))
+          elif not provider_result["environment_clean"] or provider_result["other_secret_like_env_count"] != 0 or not provider_result["provider_key_present"] or not provider_result["process_cleanup_verified"] or provider_result["process_count"] != 0 or provider_result["reader_forced"] or provider_result["reader_cleanup_failed"]:
+              error_code = "qa_infrastructure"
+          elif provider_result["credential_match"]:
+              error_code = "qa_credential_leak"
+          elif overflow:
+              error_code = "qa_output_oversized"
+          else:
+              try:
+                  raw = stdout.read_bytes()
+                  decoded = raw.decode("utf-8")
+                  leaked = r"(?i)(sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9_]{20,}|opencode_api_key\s*[=:]|bearer\s+[A-Za-z0-9._-]{20,})"
+                  stderr_text = stderr.read_text(encoding="utf-8") if stderr.exists() else ""
+                  if re.search(leaked, decoded) or re.search(leaked, stderr_text):
+                      error_code = "qa_credential_leak"
+                  else:
+                      lines = decoded.splitlines()
+                      nonempty = [line for line in lines if line.strip()]
+                      provider_result["event_count"] = len(nonempty)
+                      if len(nonempty) > 1000:
+                          error_code = "qa_output_too_many_events"
+                      elif any(len(line.encode("utf-8")) > 1048576 for line in nonempty):
+                          error_code = "qa_output_long_line"
+                      else:
+                          for line in nonempty:
+                              value = json.loads(line)
+                              if not isinstance(value, dict): raise ValueError("json object required")
+                              events.append(value)
+              except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                  error_code = "qa_invalid_json"
+          if error_code is None:
+              def inspect(value):
+                  if not isinstance(value, dict): return
+                  if "blocking_findings" in value or "advisory_findings" in value:
+                      candidates.append(value)
+                  for key in ("result", "data", "output", "part", "content", "message", "delta"):
+                      nested = value.get(key)
+                      if isinstance(nested, dict): inspect(nested)
+                  for str_key in ("text", "content", "message"):
+                      text = value.get(str_key)
+                      if isinstance(text, str):
+                          parsed = None
+                          try:
+                              parsed = json.loads(text)
+                          except json.JSONDecodeError:
+                              stripped = re.sub(r"^```(?:json)?\s*", "", text.strip(), flags=re.IGNORECASE)
+                              stripped = re.sub(r"\s*```$", "", stripped)
+                              try:
+                                  parsed = json.loads(stripped)
+                              except json.JSONDecodeError:
+                                  match = re.search(r"(\{.*\})", text, re.DOTALL)
+                                  if match:
+                                      try:
+                                          parsed = json.loads(match.group(1))
+                                      except json.JSONDecodeError:
+                                          parsed = None
+                          if isinstance(parsed, dict): inspect(parsed)
+              for event in events: inspect(event)
+              provider_result["candidate_count"] = len(candidates)
+              if len(candidates) != 1:
+                  error_code = "qa_ambiguous_candidates" if len(candidates) > 1 else "qa_invalid_json"
+              else:
+                  candidate = candidates[0]
+                  if set(candidate) != candidate_fields:
+                      error_code = "qa_invalid_schema"
+                  else:
+                      def findings(key, allow_advisory):
+                          values = candidate[key]
+                          if not isinstance(values, list) or len(values) > 20: raise ValueError
+                          clean = []
+                          for item in values:
+                              if not isinstance(item, dict) or set(item) != finding_fields: raise ValueError
+                              if not isinstance(item["id"], str) or not 1 <= len(item["id"]) <= 256: raise ValueError
+                              if not isinstance(item["category"], str) or item["category"] not in concrete | advisory_only: raise ValueError
+                              if not allow_advisory and item["category"] not in concrete: raise ValueError
+                              path = item["file"]
+                              if not isinstance(path, str) or not 1 <= len(path) <= 512 or path.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:", path) or "\\" in path or any(part in {"", ".", ".."} for part in path.split("/")): raise ValueError
+                              if not isinstance(item["line"], int) or isinstance(item["line"], bool) or not 1 <= item["line"] <= 1000000: raise ValueError
+                              if not valid_file_line(path, item["line"]): raise ValueError
+                              for name in ("summary", "evidence"):
+                                  if not isinstance(item[name], str) or not 1 <= len(item[name]) <= 2048 or "\x00" in item[name]: raise ValueError
+                              clean.append({"id": item["id"], "category": item["category"], "file": path, "line": item["line"], "summary": item["summary"], "evidence": item["evidence"]})
+                          return clean
+                      try:
+                          blocking = findings("blocking_findings", False)
+                          advisory = findings("advisory_findings", True)
+                          summary = candidate["summary"]
+                          verdict = candidate["status"]
+                          if not isinstance(summary, str) or len(summary) > 4096 or "\x00" in summary or verdict not in {"pass", "fail"} or (verdict == "pass") != (not blocking): raise ValueError
+                          serialized = json.dumps({"blocking": blocking, "advisory": advisory, "summary": summary}, ensure_ascii=False)
+                          if re.search(r"(?i)(sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9_]{20,}|opencode_api_key\s*[=:]|bearer\s+[A-Za-z0-9._-]{20,})", serialized) or re.search(r"(?i)(sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9_]{20,}|opencode_api_key\s*[=:]|bearer\s+[A-Za-z0-9._-]{20,})", stderr.read_text(encoding="utf-8") if stderr.exists() else ""):
+                              error_code = "qa_credential_leak"
+                          else:
+                              base.update({"status": "pass" if not blocking else "failure", "blocking_findings": blocking, "advisory_findings": advisory, "summary": summary})
+                              error_code = None if not blocking else "qa_blocking"
+                      except (TypeError, ValueError):
+                          error_code = "qa_invalid_schema"
+          base["error_code"] = error_code
+          output.write_text(json.dumps(base, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          for name in ("qa-events.jsonl", "qa-stderr.log", "qa-stdout-overflow", "qa-stderr-overflow", "qa-credential-match", "qa-env-clean", "qa-other-secret-like-env-count", "qa-provider-key-present", "qa-process-clean", "qa-process-count", "qa-reader-forced", "qa-reader-cleanup-failed", "prompt.txt", "issue.json", "pr.json", "context.json", "config-response.json"):
+              try: (state / name).unlink()
+              except OSError: pass
+          PY
+
+      - name: Upload strict QA evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: catter-test-qa-${{ inputs.request_id }}
+          path: ${{ env.STATE }}/artifact/qa.json
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Preserve QA/provider failure after bounded artifact
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          test "$(python3 -c 'import json; print(json.load(open("'"$STATE/artifact/qa.json"'"))["status"])')" = pass
+
+  fixed-test-adapter:
+    name: Fixed Test Adapter (artifact-only)
+    needs: [command-gate, opencode-qa]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    env:
+      REPOSITORY: ${{ github.repository }}
+      REQUEST_ID: ${{ inputs.request_id }}
+      REPOSITORY_ID: ${{ inputs.repository_id }}
+      INSTALLATION_ID: ${{ inputs.installation_id }}
+      PROJECT_ITEM_ID: ${{ inputs.project_item_id }}
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      BRANCH: ${{ inputs.branch }}
+      HEAD_SHA: ${{ inputs.head_sha }}
+      CONFIG_SHA: ${{ inputs.config_sha }}
+      STATE: /tmp/catter-test-adapter
+      FINAL: /tmp/catter-test-final.json
+    steps:
+      - name: Initialize final result
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$STATE"
+          mkdir -p "$STATE/gate" "$STATE/qa"
+          python3 - "$FINAL" <<'PY'
+          import json
+          import os
+          import sys
+          output = sys.argv[1]
+          def integer(name):
+              try: return max(1, int(os.environ.get(name, "1")))
+              except (TypeError, ValueError): return 1
+          json.dump({"schema_version": 1, "phase": "test", "request_id": os.environ["REQUEST_ID"], "installation_id": int(os.environ["INSTALLATION_ID"]), "repository_id": int(os.environ["REPOSITORY_ID"]), "repository_full_name": os.environ["REPOSITORY"], "project_item_id": os.environ["PROJECT_ITEM_ID"], "issue_number": int(os.environ["ISSUE_NUMBER"]), "workflow": {"name": os.environ.get("GITHUB_WORKFLOW", "Catter Test"), "run_id": integer("GITHUB_RUN_ID"), "run_attempt": integer("GITHUB_RUN_ATTEMPT"), "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", "DockCat/Catter/.github/workflows/test.yml@unknown")}, "config_sha": os.environ["CONFIG_SHA"], "base_branch": None, "base_sha": None, "head_branch": os.environ.get("BRANCH", ""), "head_sha": os.environ.get("HEAD_SHA", "0" * 40), "pr_number": int(os.environ["PR_NUMBER"]), "branch": os.environ.get("BRANCH", ""), "status": "failure", "error_code": "test_artifact_missing", "hashes": {"config_sha256": None, "command_gate_sha256": None, "qa_sha256": None}, "metadata": {"command_count": 0, "duration_ms": 0, "qa_provider": "opencode"}, "summary": "", "tests": None, "analysis": None}, open(output, "w", encoding="utf-8"), sort_keys=True, separators=(",", ":"))
+          PY
+
+      - name: Checkout exact QA revision for evidence validation
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.head_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact QA revision
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD 2>/dev/null)" = "$HEAD_SHA"
+
+      - name: Download Command Gate artifact
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: catter-test-gates-${{ inputs.request_id }}
+          path: ${{ env.STATE }}/gate
+
+      - name: Download OpenCode QA artifact
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: catter-test-qa-${{ inputs.request_id }}
+          path: ${{ env.STATE }}/qa
+
+      - name: Validate both artifacts and emit final result
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          python3 - "$STATE" "$FINAL" "$REQUEST_ID" "$REPOSITORY_ID" "$INSTALLATION_ID" "$PROJECT_ITEM_ID" "$ISSUE_NUMBER" "$PR_NUMBER" "$BRANCH" "$CONFIG_SHA" <<'PY'
+          import hashlib
+          import json
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+          state, final, request_id, repository_id, installation_id, project_item_id, issue_number, pr_number, branch, config_sha = sys.argv[1:]
+          state, final = Path(state), Path(final)
+          cap = 4 * 1024 * 1024
+          concrete = {"acceptance", "regression", "security", "authentication", "data_loss", "runtime", "testability"}
+          advisory_only = {"style", "naming", "solid", "duplication", "architecture"}
+          finding_fields = {"id", "category", "file", "line", "summary", "evidence"}
+          gate_fields = {"schema_version", "phase", "request_id", "repository_id", "repository_full_name", "installation_id", "project_item_id", "issue_number", "pr_number", "branch", "head_sha", "config_sha", "workflow", "default_branch", "default_sha", "base_branch", "base_sha", "status", "exit_code", "duration_ms", "command_count", "failed_index", "commands", "error_code", "hashes", "metadata"}
+          qa_fields = {"schema_version", "phase", "request_id", "repository_id", "repository_full_name", "installation_id", "project_item_id", "issue_number", "pr_number", "branch", "head_branch", "head_sha", "config_sha", "workflow", "base_branch", "base_sha", "status", "blocking_findings", "advisory_findings", "summary", "provider_result", "error_code", "hashes", "metadata"}
+          provider_fields = {"exit_code", "duration_ms", "stdout_bytes", "stderr_bytes", "stdout_truncated", "stderr_truncated", "event_count", "candidate_count", "credential_match", "environment_clean", "other_secret_like_env_count", "provider_key_present", "process_cleanup_verified", "process_count", "reader_forced", "reader_cleanup_failed"}
+          checkout_root = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+          MAX_REFERENCED_FILE_BYTES = 4 * 1024 * 1024
+          secret_pattern = re.compile(r"(?i)(sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9_]{20,}|opencode_api_key\s*[=:]|bearer\s+[A-Za-z0-9._-]{20,})")
+          def integer(value, minimum=None, maximum=None):
+              if not isinstance(value, int) or isinstance(value, bool): return False
+              return (minimum is None or value >= minimum) and (maximum is None or value <= maximum)
+          def safe_path(value):
+              return isinstance(value, str) and 1 <= len(value) <= 512 and not value.startswith(("/", "\\")) and not re.match(r"^[A-Za-z]:", value) and "\\" not in value and all(part not in {"", ".", ".."} for part in value.split("/"))
+          def valid_file_line(path, line):
+              try:
+                  candidate = checkout_root / path
+                  info = candidate.lstat()
+                  if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode): return False
+                  resolved = candidate.resolve(strict=True)
+                  resolved.relative_to(checkout_root)
+                  data = candidate.read_bytes()
+                  if len(data) > MAX_REFERENCED_FILE_BYTES: return False
+                  data.decode("utf-8")
+                  lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+                  return 1 <= line <= lines
+              except (OSError, UnicodeError, ValueError):
+                  return False
+          def valid_findings(values, allow_advisory):
+              if not isinstance(values, list) or len(values) > 20: return False
+              for item in values:
+                  if not isinstance(item, dict) or set(item) != finding_fields: return False
+                  if not isinstance(item["id"], str) or not 1 <= len(item["id"]) <= 256: return False
+                  if not isinstance(item["category"], str) or item["category"] not in concrete | advisory_only or (not allow_advisory and item["category"] not in concrete): return False
+                  if not safe_path(item["file"]) or not integer(item["line"], 1, 1000000) or not valid_file_line(item["file"], item["line"]): return False
+                  if any(not isinstance(item[name], str) or not 1 <= len(item[name]) <= 2048 or "\x00" in item[name] for name in ("summary", "evidence")): return False
+              return True
+          def workflow_identity():
+              def integer(name):
+                  try: return max(1, int(os.environ.get(name, "1")))
+                  except (TypeError, ValueError): return 1
+              return {"name": os.environ.get("GITHUB_WORKFLOW", "Catter Test"), "run_id": integer("GITHUB_RUN_ID"), "run_attempt": integer("GITHUB_RUN_ATTEMPT"), "workflow_ref": os.environ.get("GITHUB_WORKFLOW_REF", "DockCat/Catter/.github/workflows/test.yml@unknown")}
+          def write(status, code, summary="", tests=None, analysis=None, gate=None, qa=None):
+              gate = gate or {}
+              qa = qa or {}
+              gate_hashes = gate.get("hashes") if isinstance(gate.get("hashes"), dict) else {}
+              gate_path, qa_path = state / "gate" / "command-gate.json", state / "qa" / "qa.json"
+              def bounded_int(value, maximum):
+                  try: return max(0, min(maximum, int(value)))
+                  except (TypeError, ValueError): return 0
+              def safe_sha(value):
+                  return value if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) else None
+              def safe_sha40(value):
+                  return value if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{40}", value) else None
+              def safe_branch(value):
+                  return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9._/-]{1,255}", value) and ".." not in value else None
+              def bounded_tests(value):
+                  if not isinstance(value, dict): return None
+                  return {"passed": bounded_int(value.get("passed"), 20), "failed": bounded_int(value.get("failed"), 20), "command_count": bounded_int(value.get("command_count"), 20), "duration_ms": bounded_int(value.get("duration_ms"), 1800000)}
+              final.write_text(json.dumps({
+                  "schema_version": 1, "phase": "test", "request_id": request_id,
+                  "installation_id": int(installation_id), "repository_id": int(repository_id),
+                  "repository_full_name": os.environ.get("REPOSITORY", "owner/repo"), "project_item_id": project_item_id,
+                  "issue_number": int(issue_number), "workflow": workflow_identity(),
+                  "config_sha": config_sha, "base_branch": safe_branch(gate.get("default_branch")), "base_sha": safe_sha40(gate.get("default_sha")),
+                  "head_branch": branch, "head_sha": os.environ.get("HEAD_SHA", "0" * 40),
+                  "pr_number": int(pr_number), "branch": branch, "status": status, "error_code": code,
+                  "hashes": {"config_sha256": safe_sha(gate_hashes.get("config_sha256")), "command_gate_sha256": hashlib.sha256(gate_path.read_bytes()).hexdigest() if gate_path.exists() else None, "qa_sha256": hashlib.sha256(qa_path.read_bytes()).hexdigest() if qa_path.exists() else None},
+                  "metadata": {"command_count": bounded_int(tests.get("command_count", 0), 20) if isinstance(tests, dict) else 0, "duration_ms": bounded_int(tests.get("duration_ms", 0), 1800000) if isinstance(tests, dict) else 0, "qa_provider": "opencode"},
+                  "summary": summary if isinstance(summary, str) and len(summary) <= 4096 and "\x00" not in summary else "", "tests": bounded_tests(tests), "analysis": analysis,
+              }, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+          def load(path):
+              if path.stat().st_size > cap: raise ValueError("artifact bound")
+              value = json.loads(path.read_text(encoding="utf-8"))
+              if not isinstance(value, dict): raise ValueError("object required")
+              return value
+          try:
+              gate = load(state / "gate" / "command-gate.json")
+              qa = load(state / "qa" / "qa.json")
+          except (OSError, ValueError, json.JSONDecodeError):
+              write("failure", "test_artifact_missing")
+              raise SystemExit(0)
+          identity = {"request_id": request_id, "repository_id": int(repository_id), "installation_id": int(installation_id), "project_item_id": project_item_id, "issue_number": int(issue_number), "pr_number": int(pr_number), "branch": branch, "config_sha": config_sha}
+          trusted_head = os.environ.get("HEAD_SHA", "0" * 40)
+          trusted_repo = os.environ.get("REPOSITORY", "owner/repo")
+          if set(gate) != gate_fields or set(qa) != qa_fields or any(gate.get(key) != value for key, value in identity.items()) or any(qa.get(key) != value for key, value in identity.items()) or gate.get("head_sha") != trusted_head or qa.get("head_sha") != trusted_head or gate.get("repository_full_name") != trusted_repo or qa.get("repository_full_name") != trusted_repo or gate.get("schema_version") != 1 or qa.get("schema_version") != 1 or gate.get("phase") != "test" or qa.get("phase") != "test":
+              write("failure", "test_artifact_invalid")
+              raise SystemExit(0)
+          commands = gate.get("commands")
+          valid_gate = gate.get("status") in {"pass", "failure"} and integer(gate.get("exit_code"), 0, 255) and integer(gate.get("duration_ms"), 0, 1800000) and isinstance(gate.get("default_branch"), str) and isinstance(gate.get("default_sha"), str) and (gate.get("status") != "pass" or (re.match(r"^[A-Za-z0-9._/-]{1,255}$", gate["default_branch"]) and ".." not in gate["default_branch"] and "@{" not in gate["default_branch"] and re.match(r"^[0-9a-f]{40}$", gate["default_sha"]))) and isinstance(commands, list) and 0 <= len(commands) <= 20 and gate.get("command_count") == len(commands) and all(isinstance(item, dict) and set(item) == {"index", "exit_code", "duration_ms"} and item.get("index") == index and integer(item.get("exit_code"), 0, 255) and integer(item.get("duration_ms"), 0, 1800000) for index, item in enumerate(commands)) and (gate.get("failed_index") is None or (integer(gate.get("failed_index"), 0, 19) and gate.get("failed_index") < len(commands))) and (gate.get("error_code") is None or (isinstance(gate.get("error_code"), str) and 1 <= len(gate["error_code"]) <= 128))
+          first_failed = next((item["index"] for item in commands if item["exit_code"] != 0), None) if valid_gate else None
+          gate_summary = ""
+          if isinstance(gate.get("metadata"), dict) and isinstance(gate["metadata"].get("failure_summary"), str):
+              gate_summary = re.sub(secret_pattern, "[REDACTED]", gate["metadata"]["failure_summary"][:2048])
+          if not valid_gate or gate.get("status") != "pass":
+              summary_text = gate_summary if gate_summary else "Command gate failed"
+              write("failure", gate.get("error_code") if valid_gate else "command_gate_failed", summary=summary_text, tests={"passed": 0, "failed": 1, "command_count": gate.get("command_count", -1), "duration_ms": gate.get("duration_ms", -1)}, gate=gate, qa=qa)
+              raise SystemExit(0)
+          blocking, advisory = qa.get("blocking_findings"), qa.get("advisory_findings")
+          provider_result = qa.get("provider_result")
+          valid_provider = isinstance(provider_result, dict) and set(provider_result) == provider_fields and integer(provider_result.get("exit_code"), 0, 255) and provider_result["exit_code"] == 0 and integer(provider_result.get("duration_ms"), 0, 1800000) and integer(provider_result.get("stdout_bytes"), 0, cap) and integer(provider_result.get("stderr_bytes"), 0, cap) and integer(provider_result.get("other_secret_like_env_count"), 0, 128) and all(isinstance(provider_result.get(name), bool) for name in ("stdout_truncated", "stderr_truncated", "credential_match", "environment_clean", "provider_key_present", "process_cleanup_verified")) and provider_result["stdout_truncated"] is False and provider_result["stderr_truncated"] is False and integer(provider_result.get("event_count"), 1, 1000) and provider_result.get("candidate_count") == 1 and provider_result["credential_match"] is False and provider_result["environment_clean"] is True and provider_result["other_secret_like_env_count"] == 0 and provider_result["provider_key_present"] is True and provider_result["process_cleanup_verified"] is True and provider_result.get("process_count") == 0
+          safe_qa = not secret_pattern.search(json.dumps({"summary": qa.get("summary"), "blocking": blocking, "advisory": advisory}, ensure_ascii=False))
+          valid_qa = qa.get("status") in {"pass", "failure"} and isinstance(qa.get("summary"), str) and len(qa["summary"]) <= 4096 and "\x00" not in qa["summary"] and valid_provider and valid_findings(blocking, False) and valid_findings(advisory, True) and safe_qa and ((qa["status"] == "pass" and not blocking and qa.get("error_code") is None) or (qa["status"] == "failure" and blocking and qa.get("error_code") == "qa_blocking"))
+          if not valid_qa:
+              write("failure", "qa_infrastructure", "", tests={"passed": 1, "failed": 0, "command_count": len(commands), "duration_ms": gate.get("duration_ms", -1)}, gate=gate, qa=qa)
+              raise SystemExit(0)
+          if blocking:
+              write("failure", "qa_blocking", qa["summary"], tests={"passed": 1, "failed": 0, "command_count": len(commands), "duration_ms": gate["duration_ms"]}, analysis={"blocking_findings": blocking, "advisory_findings": advisory}, gate=gate, qa=qa)
+              raise SystemExit(0)
+          write("success", None, qa["summary"], tests={"passed": 1, "failed": 0, "command_count": len(commands), "duration_ms": gate["duration_ms"]}, analysis={"blocking_findings": [], "advisory_findings": advisory}, gate=gate, qa=qa)
+          PY
+
+      - name: Upload final test result only
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: catter-test-final-${{ inputs.request_id }}
+          path: ${{ env.FINAL }}
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Clean test adapter state
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +e
+          unset GH_TOKEN GITHUB_TOKEN
+          rm -rf "$STATE"

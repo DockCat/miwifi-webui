@@ -1,0 +1,122 @@
+name: Catter
+
+run-name: catter/${{ inputs.phase }}/${{ inputs.request_id }}/item-${{ inputs.project_item_id }}/issue-${{ inputs.issue_number }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: Fixed Catter phase for this run
+        required: false
+        default: implement
+        type: choice
+        options:
+          - implement
+          - test
+      request_id:
+        description: Unique Catter request marker
+        required: true
+        type: string
+      installation_id:
+        description: Numeric GitHub App installation identity
+        required: true
+        type: string
+      repository_id:
+        description: Numeric GitHub repository identity
+        required: true
+        type: string
+      project_item_id:
+        description: GitHub Project item node identity
+        required: true
+        type: string
+      issue_number:
+        description: GitHub Issue number
+        required: true
+        type: number
+      config_sha:
+        description: Default-branch configuration commit
+        required: true
+        type: string
+      pr_number:
+        description: Exact linked pull request number for Test
+        required: false
+        type: number
+      branch:
+        description: Exact linked pull request branch for Test
+        required: false
+        type: string
+      head_sha:
+        description: Exact linked pull request head commit for Test
+        required: false
+        type: string
+      existing_pr_number:
+        description: Exact existing pull request number for Implement
+        required: false
+        type: number
+      existing_pr_branch:
+        description: Exact existing pull request branch for Implement
+        required: false
+        type: string
+      existing_pr_head_sha:
+        description: Exact existing pull request head commit for Implement
+        required: false
+        type: string
+      agent_model:
+        description: OpenCode model for this run
+        required: false
+        type: string
+      fix_cycle_log:
+        description: Test failure log or feedback for Fix Cycle retries
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catter-${{ github.repository_id }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  implementation:
+    if: ${{ inputs.phase == 'implement' && github.actor == 'dockcat-catter-preview[bot]' }}
+    permissions:
+      contents: write
+      issues: read
+      pull-requests: write
+    uses: ./.github/workflows/implement.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      installation_id: ${{ inputs.installation_id }}
+      repository_id: ${{ inputs.repository_id }}
+      project_item_id: ${{ inputs.project_item_id }}
+      issue_number: ${{ inputs.issue_number }}
+      config_sha: ${{ inputs.config_sha }}
+      existing_pr_number: ${{ inputs.existing_pr_number }}
+      existing_pr_branch: ${{ inputs.existing_pr_branch }}
+      existing_pr_head_sha: ${{ inputs.existing_pr_head_sha }}
+      agent_model: ${{ inputs.agent_model }}
+      fix_cycle_log: ${{ inputs.fix_cycle_log }}
+    secrets:
+      opencode_api_key: ${{ secrets.OPENCODE_API_KEY }}
+
+  test:
+    if: ${{ inputs.phase == 'test' && github.actor == 'dockcat-catter-preview[bot]' }}
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    uses: ./.github/workflows/test.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      installation_id: ${{ inputs.installation_id }}
+      repository_id: ${{ inputs.repository_id }}
+      project_item_id: ${{ inputs.project_item_id }}
+      issue_number: ${{ inputs.issue_number }}
+      config_sha: ${{ inputs.config_sha }}
+      pr_number: ${{ inputs.pr_number }}
+      branch: ${{ inputs.branch }}
+      head_sha: ${{ inputs.head_sha }}
+      agent_model: ${{ inputs.agent_model }}
+    secrets:
+      opencode_api_key: ${{ secrets.OPENCODE_API_KEY }}

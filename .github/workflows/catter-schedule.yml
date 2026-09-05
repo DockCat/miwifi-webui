@@ -1,0 +1,41 @@
+name: Catter Scheduled Reconciliation
+
+on:
+  schedule:
+    # Run periodically every 20 minutes
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  reconcile:
+    name: Check Issue and Run Status
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect Stale Runs and Pending Issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Inspecting repository $REPOSITORY for active and stale workflow runs..."
+
+          # List in_progress catter workflow runs
+          stale_runs=$(gh run list --repo "$REPOSITORY" --workflow "catter.yml" --status in_progress --json databaseId,createdAt,displayTitle --jq '.[] | select((now - (.createdAt | fromdateiso8601)) > 3600)' || true)
+
+          if [ -n "$stale_runs" ]; then
+            echo "⚠️ Found stale catter workflow runs older than 60 minutes:"
+            echo "$stale_runs"
+          else
+            echo "✅ No stale workflow runs detected."
+          fi
+
+          # Inspect open Catter pull requests
+          echo "Checking open Catter pull requests..."
+          open_prs=$(gh pr list --repo "$REPOSITORY" --search "head:catter/implement/ state:open" --json number,title,headRefName || true)
+          echo "Open Catter PRs found: $(echo "$open_prs" | jq 'length')"
