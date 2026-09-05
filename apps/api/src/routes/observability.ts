@@ -41,7 +41,7 @@ export function registerObservabilityRoutes(
 
   // --- Device inventory. ---
   app.get('/api/routers/:routerId/devices', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return;
     const { routerId } = request.params as { routerId: string };
     const devices = await repository.listDevicesForRouter(routerId);
     const latestMap = scheduler?.getLatestDevices(routerId);
@@ -71,7 +71,7 @@ export function registerObservabilityRoutes(
 
   // --- Timeseries bucket aggregation for UniFi charts (1D / 1W / 1M). ---
   app.get('/api/routers/:routerId/telemetry/timeseries', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return;
     const { routerId } = request.params as { routerId: string };
     const query = request.query as { range?: string };
     const validRange = query.range === '1w' || query.range === '1m' ? query.range : '1d';
@@ -81,7 +81,7 @@ export function registerObservabilityRoutes(
 
   // --- Presence event history. ---
   app.get('/api/routers/:routerId/presence', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return;
     const { routerId } = request.params as { routerId: string };
     const query = request.query as { deviceId?: string; limit?: string };
     const presence = await repository.listPresenceEvents(routerId, {

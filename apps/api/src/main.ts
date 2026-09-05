@@ -5,6 +5,7 @@ import process from 'node:process';
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { closePool, createPool } from './db/pool.js';
+import { applyMigrations } from './db/migrate.js';
 import { parseMasterKey } from './crypto/envelope.js';
 import { RouterRepository } from './router/repository.js';
 import { ObservabilityRepository } from './observability/repository.js';
@@ -15,6 +16,20 @@ async function main(): Promise<void> {
   const config = loadConfig();
 
   const pool = createPool(config.databaseUrl);
+
+  // Automatically apply database migrations on startup.
+  try {
+    const applied = await applyMigrations(pool);
+    if (applied.length > 0) {
+      console.log(`Applied ${applied.length} migration(s): ${applied.join(', ')}`);
+    }
+  } catch (error) {
+    console.error('Failed to run database migrations:', error);
+    await closePool(pool);
+    process.exitCode = 1;
+    return;
+  }
+
   const app = await buildApp({ pool });
 
   // Master key is required for router credential renewal; without it the

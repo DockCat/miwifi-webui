@@ -22,10 +22,13 @@ const result = await build({
   target: 'node22',
   format: 'esm',
   outfile: path.join(distDir, 'main.js'),
-  // Node built-ins stay external so CJS `require("node:…")` from
-  // dependencies keeps working under ESM output.
-  packages: 'external',
-  external: ['pg-native'],
+  external: [
+    '@fastify/cookie',
+    '@node-rs/argon2',
+    'fastify',
+    'pg',
+    'pg-native'
+  ],
   sourcemap: true,
   logLevel: 'info'
 });

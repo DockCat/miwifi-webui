@@ -219,9 +219,16 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
       : [])
   ];
 
-  // Most active clients (sorted by live download + upload speed)
+  // Most active clients: sort primarily by live rate; if equal/idle, fall back to cumulative traffic
   const mostActiveClients = [...onlineDevices]
-    .sort((a, b) => (b.downspeed ?? 0) + (b.upspeed ?? 0) - ((a.downspeed ?? 0) + (a.upspeed ?? 0)))
+    .sort((a, b) => {
+      const rateA = (a.downspeed ?? 0) + (a.upspeed ?? 0);
+      const rateB = (b.downspeed ?? 0) + (b.upspeed ?? 0);
+      if (rateB !== rateA) return rateB - rateA;
+      const trafficA = (a.downloadTotal ?? 0) + (a.uploadTotal ?? 0);
+      const trafficB = (b.downloadTotal ?? 0) + (b.uploadTotal ?? 0);
+      return trafficB - trafficA;
+    })
     .slice(0, 6);
 
   const wanDownspeed = status?.wanDownspeed ?? 0;
@@ -574,7 +581,11 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
                             {client.name ?? client.mac ?? client.id}
                           </span>
                           <span className="client-rate mono">
-                            {totalRate > 0 ? `↓ ${formatSpeed(client.downspeed ?? 0)}` : 'Idle'}
+                            {totalRate > 0
+                              ? `↓ ${formatSpeed(client.downspeed ?? 0)}`
+                              : (client.downloadTotal ?? 0) + (client.uploadTotal ?? 0) > 0
+                                ? `Idle (${formatBytes((client.downloadTotal ?? 0) + (client.uploadTotal ?? 0))})`
+                                : 'Idle'}
                           </span>
                         </div>
                       </div>

@@ -6,7 +6,6 @@ services:
     container_name: miwifi-webui-postgres
     restart: unless-stopped
     environment:
-      # Development defaults; override for any real deployment.
       POSTGRES_USER: ${POSTGRES_USER:-miwifi}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miwifi-dev-password}
       POSTGRES_DB: ${POSTGRES_DB:-miwifi}
@@ -20,6 +19,45 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: miwifi-webui-api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-miwifi}:${POSTGRES_PASSWORD:-miwifi-dev-password}@postgres:5432/${POSTGRES_DB:-miwifi}
+      APP_MASTER_KEY: ${APP_MASTER_KEY:-}
+      API_PORT: 3001
+      API_HOST: 0.0.0.0
+      AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-}
+      AI_PROVIDER_BASE_URL: ${AI_PROVIDER_BASE_URL:-}
+      AI_PROVIDER_MODEL: ${AI_PROVIDER_MODEL:-}
+      AI_PROVIDER_API_KEY: ${AI_PROVIDER_API_KEY:-}
+      AI_EGRESS_ALLOW_MAC: ${AI_EGRESS_ALLOW_MAC:-}
+      AI_EGRESS_ALLOW_IP: ${AI_EGRESS_ALLOW_IP:-}
+      AI_EGRESS_ALLOW_NAMES: ${AI_EGRESS_ALLOW_NAMES:-}
+      RETENTION_TELEMETRY_DAYS: ${RETENTION_TELEMETRY_DAYS:-90}
+      RETENTION_PRESENCE_DAYS: ${RETENTION_PRESENCE_DAYS:-365}
+      RETENTION_AUDIT_DAYS: ${RETENTION_AUDIT_DAYS:-365}
+      RETENTION_INVESTIGATION_DAYS: ${RETENTION_INVESTIGATION_DAYS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-3001}:3001"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: miwifi-webui-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-80}:80"
 
 volumes:
   postgres-data:
