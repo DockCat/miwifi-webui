@@ -82,8 +82,24 @@ describe('normalizeRouterStatus', () => {
       memUsed: 45,
       memTotal: 128,
       wanUp: true,
-      deviceCount: 7
+      deviceCount: 7,
+      wanDownspeed: undefined,
+      wanUpspeed: undefined,
+      upTimeSeconds: undefined
     });
+  });
+
+  it('parses RD05-style wanStatistics + uptime payloads', () => {
+    const status = normalizeRouterStatus({
+      count: 7,
+      upTime: '757601.79',
+      wanStatistics: { downspeed: '1335', upspeed: '1052' }
+    });
+    assert.equal(status.deviceCount, 7);
+    assert.equal(status.upTimeSeconds, 757601.79);
+    assert.equal(status.wanDownspeed, 1335);
+    assert.equal(status.wanUpspeed, 1052);
+    assert.equal(status.wanUp, true, 'live WAN statistics imply link up');
   });
 
   it('returns undefined fields for garbage payloads', () => {

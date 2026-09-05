@@ -18,10 +18,14 @@ import {
 const CREDENTIALS = { username: 'admin', password: 'fixture-router-pw' };
 const MAC = 'AA:BB:CC:DD:EE:10';
 
+const LOGIN_PAGE_HTML =
+  '<html><script>var deviceId = \'aa:bb:cc:dd:ee:02\'; key: \'b22df66d11ee88a2c3d4e5f60719203\'</script></html>';
+
 function mutationScenario(overrides: Partial<FixtureScenario> = {}): FixtureScenario {
   return {
     name: 'mutation-capable',
     initInfo: { code: 0, model: 'RD03' },
+    loginPage: LOGIN_PAGE_HTML,
     login: { ok: true, token: 'stok-mutation-1' },
     responses: {
       block_internet: { status: 200, body: { code: 0 } },

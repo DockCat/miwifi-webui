@@ -18,6 +18,7 @@ export interface NormalizedDevice {
 export interface RawDeviceEntry {
   readonly mac?: unknown;
   readonly name?: unknown;
+  readonly oname?: unknown;
   readonly nickname?: unknown;
   readonly ip?: unknown;
   readonly ipaddress?: unknown;
@@ -29,11 +30,26 @@ function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
+/** Extract a device IP from string or firmware array forms. */
+function asDeviceIp(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  // RD05-class firmware: ip: [{ ip: "192.168.31.107", active: 1, ... }]
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      if (entry !== null && typeof entry === 'object') {
+        const ip = asString((entry as Record<string, unknown>)['ip']);
+        if (ip) return ip;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null {
   if (entry === null || typeof entry !== 'object') return null;
   const mac = asString(entry.mac)?.toUpperCase();
-  const name = asString(entry.name) ?? asString(entry.nickname);
-  const ip = asString(entry.ip) ?? asString(entry.ipaddress);
+  const name = asString(entry.name) ?? asString(entry.oname) ?? asString(entry.nickname);
+  const ip = asDeviceIp(entry.ip) ?? asString(entry.ipaddress);
   const online =
     entry.online === true ||
     entry.online === 'true' ||
@@ -65,6 +81,11 @@ export interface NormalizedRouterStatus {
   readonly memTotal: number | undefined;
   readonly wanUp: boolean | undefined;
   readonly deviceCount: number | undefined;
+  /** WAN down/up speeds (bytes/sec), where the firmware reports them. */
+  readonly wanDownspeed: number | undefined;
+  readonly wanUpspeed: number | undefined;
+  /** Router uptime in seconds, where reported. */
+  readonly upTimeSeconds: number | undefined;
 }
 
 export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus {
@@ -73,7 +94,10 @@ export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus 
     memUsed: undefined,
     memTotal: undefined,
     wanUp: undefined,
-    deviceCount: undefined
+    deviceCount: undefined,
+    wanDownspeed: undefined,
+    wanUpspeed: undefined,
+    upTimeSeconds: undefined
   };
   if (payload === null || typeof payload !== 'object') return empty;
   const body = payload as Record<string, unknown>;
@@ -83,6 +107,13 @@ export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus 
       : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))
         ? Number(v)
         : undefined;
+
+  // wanStatistics appears on RD05-class firmware: {downspeed, upspeed, ...}
+  const wanStats =
+    body['wanStatistics'] !== null && typeof body['wanStatistics'] === 'object'
+      ? (body['wanStatistics'] as Record<string, unknown>)
+      : undefined;
+
   return {
     cpuLoad: num(body['cpu'] ?? body['cpuLoad'] ?? body['load']),
     memUsed: num(body['mem'] ?? body['memUsed']),
@@ -92,7 +123,12 @@ export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus 
         ? true
         : body['wan'] === 'down' || body['wan'] === false
           ? false
-          : undefined,
-    deviceCount: num(body['deviceCount'] ?? body['count'])
+          : wanStats !== undefined
+            ? true // router reporting live WAN statistics implies link up
+            : undefined,
+    deviceCount: num(body['deviceCount'] ?? body['count']),
+    wanDownspeed: num(wanStats?.['downspeed']),
+    wanUpspeed: num(wanStats?.['upspeed']),
+    upTimeSeconds: num(body['upTime'])
   };
 }

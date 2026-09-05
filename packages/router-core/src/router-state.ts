@@ -15,6 +15,8 @@ export interface RouterIdentity {
   readonly romVersion: string | undefined;
   /** Channel/region code where reported. */
   readonly channel: string | undefined;
+  /** Login challenge mode: true => SHA256 (newEncryptMode=1), false => SHA1. */
+  readonly newEncryptMode: boolean;
 }
 
 /** Live router status summary (normalized from init/status endpoints). */

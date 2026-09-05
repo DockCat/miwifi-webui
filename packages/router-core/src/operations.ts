@@ -2,9 +2,10 @@
  * Operation catalog: every MiWiFi request the adapter can issue, with its
  * explicit effect class and stok requirement.
  *
- * The path is a template with an optional {stok} placeholder. Effect is
- * declared by the catalog author and NEVER inferred from the HTTP method
- * (MiWiFi GETs can have side effects).
+ * Authenticated paths use the router's native `;stok=` separator format:
+ *   /cgi-bin/luci/;stok=<token>/api/<module>/<endpoint>
+ * Effect is declared by the catalog author and NEVER inferred from the
+ * HTTP method (MiWiFi GETs can have side effects).
  */
 import type { RouterOperationEffect } from './effect.js';
 
@@ -29,7 +30,16 @@ export const OPERATIONS = {
     method: 'GET',
     effect: 'READ',
     requiresStok: false,
-    probe: true
+    probe: false
+  },
+  /** Router login page — key/deviceId challenge source (no auth). */
+  loginPage: {
+    id: 'login_page',
+    path: '/cgi-bin/luci/web',
+    method: 'GET',
+    effect: 'READ',
+    requiresStok: false,
+    probe: false
   },
   /** Router login — authenticates and returns stok. */
   login: {
@@ -40,28 +50,37 @@ export const OPERATIONS = {
     requiresStok: false,
     probe: false
   },
-  /** Router status/info under session. */
-  routerInfo: {
-    id: 'router_info',
-    path: '/cgi-bin/luci/api/xqsystem/{stok}/router_info',
-    method: 'GET',
-    effect: 'READ',
-    requiresStok: true,
-    probe: true
-  },
-  /** Device list. */
-  deviceList: {
-    id: 'device_list',
-    path: '/cgi-bin/luci/api/misystem/{stok}/devicelist',
-    method: 'GET',
-    effect: 'READ',
-    requiresStok: true,
-    probe: true
-  },
-  /** Router status overview (health). */
+  /** Router status overview (health: cpu/mem/wan/device counts). */
   status: {
     id: 'status',
-    path: '/cgi-bin/luci/api/xqsystem/{stok}/status',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqsystem/status',
+    method: 'GET',
+    effect: 'READ',
+    requiresStok: true,
+    probe: true
+  },
+  /** Device list (misystem module). */
+  deviceList: {
+    id: 'device_list',
+    path: '/cgi-bin/luci/;stok={stok}/api/misystem/devicelist',
+    method: 'GET',
+    effect: 'READ',
+    requiresStok: true,
+    probe: true
+  },
+  /** Network topology (mesh graph). */
+  topoGraph: {
+    id: 'topo_graph',
+    path: '/cgi-bin/luci/;stok={stok}/api/misystem/topo_graph',
+    method: 'GET',
+    effect: 'READ',
+    requiresStok: true,
+    probe: false
+  },
+  /** WAN connection info. */
+  wanInfo: {
+    id: 'wan_info',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqnetwork/wan_info',
     method: 'GET',
     effect: 'READ',
     requiresStok: true,
@@ -70,7 +89,7 @@ export const OPERATIONS = {
   /** Block a device's Internet access (WRITE — reversible). */
   blockInternet: {
     id: 'block_internet',
-    path: '/cgi-bin/luci/api/xqsmarthome/{stok}/request',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqsmarthome/request',
     method: 'POST',
     effect: 'WRITE',
     requiresStok: true,
@@ -79,7 +98,7 @@ export const OPERATIONS = {
   /** Restore a device's Internet access (WRITE — reversible). */
   unblockInternet: {
     id: 'unblock_internet',
-    path: '/cgi-bin/luci/api/xqsmarthome/{stok}/request',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqsmarthome/request',
     method: 'POST',
     effect: 'WRITE',
     requiresStok: true,
@@ -88,7 +107,7 @@ export const OPERATIONS = {
   /** Smart home device list — used to read back block state. */
   smartHomeDeviceList: {
     id: 'smarthome_devicelist',
-    path: '/cgi-bin/luci/api/xqsmarthome/{stok}/request',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqsmarthome/request',
     method: 'POST',
     effect: 'READ',
     requiresStok: true,
@@ -102,7 +121,7 @@ export function specFor(key: OperationKey): RouterOperationSpec {
   return OPERATIONS[key];
 }
 
-/** Resolve a path template with the session token. */
+/** Resolve a path template with the session token (`;stok=` separator). */
 export function resolvePath(spec: RouterOperationSpec, stok: string | null): string {
   if (!spec.path.includes('{stok}')) return spec.path;
   if (!stok) {

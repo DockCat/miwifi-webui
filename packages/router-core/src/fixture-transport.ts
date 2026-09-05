@@ -16,6 +16,11 @@ export interface FixtureScenario {
   readonly name: string;
   /** init_info response body (null = offline). */
   readonly initInfo: unknown | null;
+  /**
+   * Login challenge page (HTML string) or null = router unreachable.
+   * When null but initInfo is set, login cannot proceed (auth failure).
+   */
+  readonly loginPage: string | null;
   /** login: { ok, token } — token null means auth failure. */
   readonly login: { ok: boolean; token: string | null };
   /** Per-operation responses after login. */
@@ -41,8 +46,21 @@ export class FixtureTransport implements RouterTransport {
           throw new RouterTransportError({ kind: 'offline' }, req.operation);
         }
         return { status: 200, body: this.scenario.initInfo };
+      case 'login_page': {
+        if (this.scenario.loginPage === null) {
+          throw new RouterTransportError({ kind: 'offline' }, req.operation);
+        }
+        return { status: 200, body: this.scenario.loginPage };
+      }
       case 'login': {
         this.loginAttempted = true;
+        // The adapter must send a challenge-hashed password (never the
+        // plaintext). The fixture cannot verify the hash itself, but it
+        // CAN verify the request carried a nonce and non-empty password.
+        const body = req.body as Record<string, string> | undefined;
+        if (!body?.nonce || !body?.password) {
+          return { status: 400, body: { code: 4001, msg: 'missing challenge fields' } };
+        }
         if (!this.scenario.login.ok || this.scenario.login.token === null) {
           return { status: 401, body: { code: 401, msg: 'Incorrect password' } };
         }

@@ -16,6 +16,10 @@ import {
 
 const CREDENTIALS = { username: 'admin', password: 'SEN[1]TINEL-Router-Pw' };
 
+/** Simulated login challenge page, as a real router's /cgi-bin/luci/web. */
+const LOGIN_PAGE_HTML =
+  '<html><script>var deviceId = \'aa:bb:cc:dd:ee:01\'; key: \'a11ce55c0ffee99b1b2c3d4e5f60718\'</script></html>';
+
 function fullRouterScenario(overrides: Partial<FixtureScenario> = {}): FixtureScenario {
   return {
     name: 'full-support',
@@ -26,11 +30,12 @@ function fullRouterScenario(overrides: Partial<FixtureScenario> = {}): FixtureSc
       romVersion: '2.28.23',
       channel: 'release'
     },
+    loginPage: LOGIN_PAGE_HTML,
     login: { ok: true, token: 'stok-fixture-token-1' },
     responses: {
-      router_info: { status: 200, body: { code: 0, model: 'RD03', rom: '2.28.23' } },
       status: { status: 200, body: { code: 0, cpu: 12, mem: 45, wan: 'up' } },
-      device_list: { status: 200, body: { code: 0, list: [{ mac: 'AA:BB:CC:DD:EE:01', online: true }] } }
+      device_list: { status: 200, body: { code: 0, list: [{ mac: 'AA:BB:CC:DD:EE:01', online: 1 }] } },
+      wan_info: { status: 200, body: { code: 0, info: { link: 1 } } }
     },
     ...overrides
   };
@@ -82,9 +87,9 @@ describe('MiWifiAdapter probe', () => {
     assert.equal(probe.status, 'SUPPORTED');
     assert.equal(probe.authenticated, true);
     assert.deepEqual(probe.capabilities, [
-      'router-info',
       'health-metrics',
-      'device-inventory'
+      'device-inventory',
+      'router-info'
     ]);
     assert.equal(probe.identity.model, 'RD03');
     assert.equal(probe.identity.romVersion, '2.28.23');
@@ -108,15 +113,15 @@ describe('MiWifiAdapter probe', () => {
       fullRouterScenario({
         name: 'partial',
         responses: {
-          router_info: { status: 200, body: { code: 0 } },
-          status: { status: 200, body: { code: 0, cpu: 5 } }
+          status: { status: 200, body: { code: 0, cpu: 5 } },
+          wan_info: { status: 200, body: { code: 0, info: { link: 1 } } }
           // device_list absent -> 404
         }
       })
     );
     const probe = await adapter.probe();
     assert.equal(probe.status, 'PARTIAL');
-    assert.ok(probe.capabilities.includes('router-info'));
+    assert.ok(probe.capabilities.includes('health-metrics'));
     assert.ok(!probe.capabilities.includes('device-inventory'));
   });
 
@@ -150,25 +155,25 @@ describe('MiWifiAdapter session expiry and renewal', () => {
     assert.equal(adapter.hasSession, true);
 
     // Simulate expiry: session flagged code 9 on next call.
-    scenario.responses['router_info'] = {
+    scenario.responses['status'] = {
       status: 200,
       body: { code: 9, msg: 'token expired' }
     };
     await assert.rejects(
-      () => adapter.call('routerInfo'),
+      () => adapter.call('status'),
       /aborted/,
       'expired-session call must throw aborted'
     );
     assert.equal(adapter.hasSession, false, 'session must be invalidated');
 
     // Renewal: login again and restore a working endpoint.
-    scenario.responses['router_info'] = {
+    scenario.responses['status'] = {
       status: 200,
-      body: { code: 0, model: 'RD03' }
+      body: { code: 0, cpu: 12 }
     };
     const renewed = await adapter.ensureSession();
     assert.equal(renewed, true);
-    const response = await adapter.call('routerInfo');
+    const response = await adapter.call('status');
     assert.equal(response.status, 200);
   });
 
@@ -199,17 +204,17 @@ describe('MiWifiAdapter malformed responses', () => {
       fullRouterScenario({
         name: 'malformed-cap',
         responses: {
-          router_info: { status: 200, body: 'not-an-object' },
-          status: { status: 200, body: { code: 0, cpu: 1 } },
-          device_list: { status: 200, body: null }
+          status: { status: 200, body: 'not-an-object' },
+          device_list: { status: 200, body: null },
+          wan_info: { status: 200, body: { code: 0, info: { link: 1 } } }
         }
       })
     );
     const probe = await adapter.probe();
     // malformed bodies are unusable -> capabilities only from valid ones
-    assert.ok(!probe.capabilities.includes('router-info'));
-    assert.ok(probe.capabilities.includes('health-metrics'));
+    assert.ok(!probe.capabilities.includes('health-metrics'));
     assert.ok(!probe.capabilities.includes('device-inventory'));
+    assert.ok(probe.capabilities.includes('router-info'));
     assert.equal(probe.status, 'PARTIAL');
   });
 });

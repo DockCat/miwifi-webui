@@ -17,6 +17,9 @@ import {
 
 const CREDENTIALS = { username: 'admin', password: 'ExtFix-Pass-1' };
 
+const LOGIN_PAGE_HTML =
+  '<html><script>var deviceId = \'aa:bb:cc:dd:ee:03\'; key: \'c33ef77e22ff99b3c4d5e6f70821304\'</script></html>';
+
 describe('login response variants', () => {
   it('parses stok from a redirect-style url field', async () => {
     // Some firmwares return { code: 0, url: "/cgi-bin/luci/api/stok=TOKEN/..." }
@@ -25,12 +28,15 @@ describe('login response variants', () => {
         if (req.operation === 'init_info') {
           return { status: 200, body: { code: 0, model: 'R3G' } };
         }
+        if (req.operation === 'login_page') {
+          return { status: 200, body: LOGIN_PAGE_HTML };
+        }
         if (req.operation === 'login') {
           return {
             status: 200,
             body: {
               code: 0,
-              url: '/cgi-bin/luci/api/xqsystem/stok=RedirectToken9/home'
+              url: '/cgi-bin/luci/;stok=RedirectToken9/web/home'
             }
           };
         }
@@ -52,6 +58,9 @@ describe('login response variants', () => {
         if (req.operation === 'init_info') {
           return { status: 200, body: { code: 0, model: 'R3G' } };
         }
+        if (req.operation === 'login_page') {
+          return { status: 200, body: LOGIN_PAGE_HTML };
+        }
         return { status: 200, body: { code: 0, msg: 'weird firmware' } };
       }
     };
@@ -66,6 +75,9 @@ describe('mid-session expiry', () => {
     let loginCount = 0;
     const transport: RouterTransport = {
       request: async (req: RouterTransportRequest): Promise<RouterTransportResponse> => {
+        if (req.operation === 'login_page') {
+          return { status: 200, body: LOGIN_PAGE_HTML };
+        }
         if (req.operation === 'login') {
           loginCount++;
           return { status: 200, body: { code: 0, token: `token-${loginCount}` } };
@@ -97,22 +109,25 @@ describe('fixture scenario library', () => {
     {
       name: 'full-support-token-login',
       initInfo: { code: 0, model: 'RD03' },
+      loginPage: LOGIN_PAGE_HTML,
       login: { ok: true, token: 'tok' },
       responses: {
-        router_info: { status: 200, body: { code: 0 } },
         status: { status: 200, body: { code: 0 } },
-        device_list: { status: 200, body: { code: 0, list: [] } }
+        device_list: { status: 200, body: { code: 0, list: [] } },
+        wan_info: { status: 200, body: { code: 0 } }
       }
     },
     {
       name: 'auth-failure',
       initInfo: { code: 0, model: 'R4CM' },
+      loginPage: LOGIN_PAGE_HTML,
       login: { ok: false, token: null },
       responses: {}
     },
     {
       name: 'malformed-status',
       initInfo: { code: 0, model: 'R3P' },
+      loginPage: LOGIN_PAGE_HTML,
       login: { ok: true, token: 'tok' },
       responses: {
         status: { status: 200, body: 42 }

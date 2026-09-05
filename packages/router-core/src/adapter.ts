@@ -20,6 +20,30 @@ import {
   type RouterTransportResponse
 } from './transport.js';
 import type { RouterIdentity } from './router-state.js';
+import { createHash } from 'node:crypto';
+
+/**
+ * MiWiFi login password challenge hash.
+ *
+ * Legacy:  SHA1(nonce + SHA1(password + key))
+ * New:     SHA256(nonce + SHA256(password + key))
+ *
+ * The plaintext password never crosses the transport boundary.
+ */
+export function hashPasswordChallenge(
+  algorithm: 'sha1' | 'sha256',
+  nonce: string,
+  password: string,
+  key: string
+): string {
+  const digest = (input: string): string => {
+    if (algorithm === 'sha256') {
+      return createHash('sha256').update(input).digest('hex');
+    }
+    return createHash('sha1').update(input).digest('hex');
+  };
+  return digest(nonce + digest(password + key));
+}
 
 export interface AdapterCredentials {
   readonly username: string;
@@ -70,21 +94,39 @@ export class MiWifiAdapter {
 
   /** Login to the router and cache the stok in memory. */
   async login(): Promise<LoginResult> {
-    const spec = specFor('login');
-    let response: RouterTransportResponse;
+    // MiWiFi firmware login requires a key+nonce challenge (both encrypt
+    // modes per upstream reference): password is never sent plaintext.
+    // key:   scraped from GET /cgi-bin/luci/web (`key: '...'` in the page)
+    // nonce: `${type}_${deviceId}_${unixSeconds}_${random}`
+    // hash:  SHA256(nonce + SHA256(password + key))  (newEncryptMode)
+    //        SHA1(nonce + SHA1(password + key))      (legacy)
     try {
-      response = await this.transport.request({
-        operation: spec.id,
-        path: spec.path,
-        method: spec.method,
+      const key = await this.fetchLoginKey();
+      if (key === null) {
+        return { ok: false, reason: 'router_offline' };
+      }
+      const nonce = `0_${key.deviceId}_${Math.floor(Date.now() / 1000)}_${Math.floor(Math.random() * 10000)}`;
+      const algorithm = key.newEncryptMode ? 'sha256' : 'sha1';
+      const passwordHash = hashPasswordChallenge(
+        algorithm,
+        nonce,
+        this.credentials.password,
+        key.key
+      );
+
+      const response = await this.transport.request({
+        operation: specFor('login').id,
+        path: specFor('login').path,
+        method: 'POST',
         body: {
           username: this.credentials.username,
-          password: this.credentials.password,
+          password: passwordHash,
           logtype: '2',
-          nonce: `_r_${Math.random().toString(36).slice(2, 10)}`
+          nonce
         },
         timeoutMs: 5_000
       });
+      return this.consumeLoginResponse(response);
     } catch (error) {
       if (error instanceof RouterTransportError) {
         if (error.failure.kind === 'offline' || error.failure.kind === 'timeout') {
@@ -94,7 +136,54 @@ export class MiWifiAdapter {
       }
       throw error;
     }
+  }
 
+  /**
+   * Fetch the login key + deviceId from the router's web page.
+   * Returns null when unreachable (mapped to router_offline).
+   */
+  private async fetchLoginKey(): Promise<{
+    key: string;
+    deviceId: string;
+    newEncryptMode: boolean;
+  } | null> {
+    const spec = specFor('loginPage');
+    try {
+      const response = await this.transport.request({
+        operation: spec.id,
+        path: spec.path,
+        method: 'GET',
+        timeoutMs: 5_000
+      });
+      if (response.status !== 200) return null;
+      const html = String(response.body ?? '');
+      // deviceId is typically the router MAC (colon-separated hex).
+      const keyMatch = /key:\s*['"]([0-9a-f]+)['"]/.exec(html);
+      const deviceMatch = /deviceId\s*=\s*['"]([0-9A-Za-z:-]+)['"]/.exec(html);
+      const encryptMatch = /newEncryptMode\s*:\s*["']?(\d)/.exec(html);
+      // Fall back to init_info for newEncryptMode when the page lacks it.
+      let newEncryptMode = encryptMatch?.[1] === '1';
+      if (encryptMatch === null) {
+        const init = await this.readIdentity();
+        newEncryptMode = init?.newEncryptMode === true;
+      }
+      if (!keyMatch?.[1] || !deviceMatch?.[1]) {
+        return null;
+      }
+      return {
+        key: keyMatch[1],
+        deviceId: deviceMatch[1],
+        newEncryptMode
+      };
+    } catch (error) {
+      if (error instanceof RouterTransportError) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private consumeLoginResponse(response: RouterTransportResponse): LoginResult {
     if (response.status !== 200) {
       return { ok: false, reason: 'invalid_credentials' };
     }
@@ -106,7 +195,7 @@ export class MiWifiAdapter {
       return { ok: true };
     }
     if (typeof body?.url === 'string') {
-      const match = /\/stok=([A-Za-z0-9]+)\//.exec(body.url);
+      const match = /;stok=([A-Za-z0-9]+)/.exec(body.url);
       if (match?.[1]) {
         this.stok = match[1];
         this.stokExpiresAt = Date.now() + MiWifiAdapter.STOK_TTL_MS;
@@ -143,8 +232,13 @@ export class MiWifiAdapter {
       return {
         model: typeof body.model === 'string' ? body.model : undefined,
         hardware: typeof body.hardware === 'string' ? body.hardware : undefined,
-        romVersion: typeof body.romVersion === 'string' ? body.romVersion : undefined,
-        channel: typeof body.channel === 'string' ? body.channel : undefined
+        // Firmwares expose romVersion or romversion (lowercase).
+        romVersion:
+          (typeof body.romVersion === 'string' ? body.romVersion : undefined) ??
+          (typeof body.romversion === 'string' ? body.romversion : undefined),
+        channel: typeof body.countrycode === 'string' ? body.countrycode : undefined,
+        // Login challenge mode: 1 => SHA256, 0/absent => SHA1 (legacy).
+        newEncryptMode: body.newEncryptMode === 1 || body.newEncryptMode === '1'
       };
     } catch (error) {
       if (error instanceof RouterTransportError) return null;
@@ -162,7 +256,7 @@ export class MiWifiAdapter {
     const identity = await this.readIdentity();
     if (identity === null) {
       return {
-        identity: { model: undefined, hardware: undefined, romVersion: undefined, channel: undefined },
+        identity: { model: undefined, hardware: undefined, romVersion: undefined, channel: undefined, newEncryptMode: false },
         status: 'INCOMPATIBLE',
         capabilities: [],
         authenticated: false
@@ -184,9 +278,9 @@ export class MiWifiAdapter {
     // 3. Probe each capability endpoint (read-only ops only).
     const capabilities: RouterCapability[] = [];
     const probeOrder: { key: OperationKey; capability: RouterCapability }[] = [
-      { key: 'routerInfo', capability: 'router-info' },
       { key: 'status', capability: 'health-metrics' },
-      { key: 'deviceList', capability: 'device-inventory' }
+      { key: 'deviceList', capability: 'device-inventory' },
+      { key: 'wanInfo', capability: 'router-info' }
     ];
     for (const { key, capability } of probeOrder) {
       if (!isRouterCapability(capability)) continue;
@@ -203,13 +297,12 @@ export class MiWifiAdapter {
     }
 
     // 4. Classify.
-    const hasRouterInfo = capabilities.includes('router-info');
+    const hasHealth = capabilities.includes('health-metrics');
     const hasDevices = capabilities.includes('device-inventory');
-    const expected = hasRouterInfo && hasDevices;
     let status: RouterCompatibilityStatus;
-    if (expected) {
-      status = capabilities.length >= 3 ? 'SUPPORTED' : 'SUPPORTED';
-    } else if (hasRouterInfo || hasDevices) {
+    if (hasHealth && hasDevices) {
+      status = 'SUPPORTED';
+    } else if (hasHealth || hasDevices) {
       status = 'PARTIAL';
     } else {
       // Login works but no expected endpoints responded — usable but poor.

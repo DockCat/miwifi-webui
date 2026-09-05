@@ -70,8 +70,20 @@ export class HttpRouterTransport implements RouterTransport {
     }
 
     let body: unknown;
+    const contentType = response.headers.get('content-type') ?? '';
     try {
-      body = await response.json();
+      const text = await response.text();
+      if (contentType.includes('text/html')) {
+        // Xiaomi firmware serves JSON API responses under text/html too.
+        // Try JSON first; genuine HTML (login challenge page) stays a string.
+        try {
+          body = JSON.parse(text) as unknown;
+        } catch {
+          body = text;
+        }
+      } else {
+        body = text.length > 0 ? (JSON.parse(text) as unknown) : null;
+      }
     } catch {
       throw new RouterTransportError({ kind: 'malformed' }, req.operation);
     }
