@@ -7,11 +7,18 @@
  * fields are undefined, never invented.
  */
 
+export type DeviceConnectionType = 'wired' | 'wifi_2g' | 'wifi_5g' | 'guest' | 'unknown';
+
 export interface NormalizedDevice {
   readonly mac: string | undefined;
   readonly name: string | undefined;
   readonly ip: string | undefined;
   readonly online: boolean;
+  readonly downspeed: number;
+  readonly upspeed: number;
+  readonly downloadTotal: number;
+  readonly uploadTotal: number;
+  readonly connectionType: DeviceConnectionType;
 }
 
 /** Raw MiWiFi device-list entry (loose — parsed defensively). */
@@ -24,32 +31,64 @@ export interface RawDeviceEntry {
   readonly ipaddress?: unknown;
   readonly online?: unknown;
   readonly statistics?: unknown;
+  readonly type?: unknown;
+  readonly isap?: unknown;
 }
 
 function asString(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-/** Extract a device IP from string or firmware array forms. */
-function asDeviceIp(value: unknown): string | undefined {
-  if (typeof value === 'string' && value.length > 0) return value;
-  // RD05-class firmware: ip: [{ ip: "192.168.31.107", active: 1, ... }]
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+/** Extract a device IP and optional ip-level speeds from string or firmware array forms. */
+function extractIpAndSpeed(value: unknown): {
+  ip: string | undefined;
+  downspeed?: number;
+  upspeed?: number;
+} {
+  if (typeof value === 'string' && value.length > 0) return { ip: value };
+  // RD05-class firmware: ip: [{ ip: "192.168.31.107", downspeed: "123", upspeed: "45", active: 1, ... }]
   if (Array.isArray(value)) {
     for (const entry of value) {
       if (entry !== null && typeof entry === 'object') {
-        const ip = asString((entry as Record<string, unknown>)['ip']);
-        if (ip) return ip;
+        const item = entry as Record<string, unknown>;
+        const ip = asString(item['ip']);
+        if (ip) {
+          return {
+            ip,
+            downspeed: asNumber(item['downspeed']),
+            upspeed: asNumber(item['upspeed'])
+          };
+        }
       }
     }
   }
-  return undefined;
+  return { ip: undefined };
+}
+
+function parseConnectionType(type: unknown): DeviceConnectionType {
+  const t = typeof type === 'string' ? Number.parseInt(type, 10) : type;
+  if (t === 0) return 'wired';
+  if (t === 1) return 'wifi_2g';
+  if (t === 2) return 'wifi_5g';
+  if (t === 3) return 'guest';
+  return 'unknown';
 }
 
 export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null {
   if (entry === null || typeof entry !== 'object') return null;
   const mac = asString(entry.mac)?.toUpperCase();
   const name = asString(entry.name) ?? asString(entry.oname) ?? asString(entry.nickname);
-  const ip = asDeviceIp(entry.ip) ?? asString(entry.ipaddress);
+  const ipInfo = extractIpAndSpeed(entry.ip);
+  const ip = ipInfo.ip ?? asString(entry.ipaddress);
   const online =
     entry.online === true ||
     entry.online === 'true' ||
@@ -57,7 +96,29 @@ export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null 
     entry.online === '1';
 
   if (mac === undefined && ip === undefined) return null;
-  return { mac, name, ip, online };
+
+  const stats =
+    entry.statistics !== null && typeof entry.statistics === 'object'
+      ? (entry.statistics as Record<string, unknown>)
+      : undefined;
+
+  const downspeed = asNumber(stats?.['downspeed']) ?? ipInfo.downspeed ?? 0;
+  const upspeed = asNumber(stats?.['upspeed']) ?? ipInfo.upspeed ?? 0;
+  const downloadTotal = asNumber(stats?.['download']) ?? 0;
+  const uploadTotal = asNumber(stats?.['upload']) ?? 0;
+  const connectionType = parseConnectionType(entry.type);
+
+  return {
+    mac,
+    name,
+    ip,
+    online,
+    downspeed,
+    upspeed,
+    downloadTotal,
+    uploadTotal,
+    connectionType
+  };
 }
 
 export function normalizeDeviceList(payload: unknown): readonly NormalizedDevice[] {

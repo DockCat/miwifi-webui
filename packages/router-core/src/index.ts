@@ -65,7 +65,8 @@ export {
 export type {
   NormalizedDevice,
   RawDeviceEntry,
-  NormalizedRouterStatus
+  NormalizedRouterStatus,
+  DeviceConnectionType
 } from './device-normalization.js';
 
 export {

@@ -44,18 +44,39 @@ export function registerObservabilityRoutes(
     if (!requireAuth(request, reply)) return reply.sent as unknown as object;
     const { routerId } = request.params as { routerId: string };
     const devices = await repository.listDevicesForRouter(routerId);
+    const latestMap = scheduler?.getLatestDevices(routerId);
     return {
-      devices: devices.map((device) => ({
-        id: device.id,
-        mac: device.mac,
-        name: device.name,
-        ip: device.ip,
-        online: device.online,
-        internetAccess: device.internetAccess,
-        firstSeenAt: device.firstSeenAt.toISOString(),
-        lastSeenAt: device.lastSeenAt.toISOString()
-      }))
+      devices: devices.map((device) => {
+        const latest =
+          (device.mac ? latestMap?.get(`mac:${device.mac}`) : undefined) ??
+          (device.ip ? latestMap?.get(`ip:${device.ip}`) : undefined);
+        return {
+          id: device.id,
+          mac: device.mac,
+          name: device.name,
+          ip: device.ip,
+          online: device.online,
+          internetAccess: device.internetAccess,
+          firstSeenAt: device.firstSeenAt.toISOString(),
+          lastSeenAt: device.lastSeenAt.toISOString(),
+          downspeed: latest?.downspeed ?? 0,
+          upspeed: latest?.upspeed ?? 0,
+          downloadTotal: latest?.downloadTotal ?? 0,
+          uploadTotal: latest?.uploadTotal ?? 0,
+          connectionType: latest?.connectionType ?? 'unknown'
+        };
+      })
     };
+  });
+
+  // --- Timeseries bucket aggregation for UniFi charts (1D / 1W / 1M). ---
+  app.get('/api/routers/:routerId/telemetry/timeseries', async (request, reply) => {
+    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    const { routerId } = request.params as { routerId: string };
+    const query = request.query as { range?: string };
+    const validRange = query.range === '1w' || query.range === '1m' ? query.range : '1d';
+    const points = await repository.queryTimeseries(routerId, validRange);
+    return { points };
   });
 
   // --- Presence event history. ---

@@ -24,6 +24,20 @@ export interface DeviceRow {
   internetAccess: boolean;
   firstSeenAt: string;
   lastSeenAt: string;
+  downspeed?: number;
+  upspeed?: number;
+  downloadTotal?: number;
+  uploadTotal?: number;
+  connectionType?: 'wired' | 'wifi_2g' | 'wifi_5g' | 'guest' | 'unknown';
+}
+
+export interface TimeseriesPoint {
+  timestamp: string;
+  downspeed: number;
+  upspeed: number;
+  deviceCount: number;
+  cpuLoad: number;
+  memUsed: number;
 }
 
 export interface PresenceEvent {
@@ -120,6 +134,11 @@ export const api = {
 
   telemetry: (routerId: string) =>
     request<{ snapshots: TelemetrySnapshot[] }>(`/api/routers/${routerId}/telemetry`),
+
+  telemetryTimeseries: (routerId: string, range: '1d' | '1w' | '1m' = '1d') =>
+    request<{ points: TimeseriesPoint[] }>(
+      `/api/routers/${routerId}/telemetry/timeseries?range=${range}`
+    ),
 
   blockDevice: (routerId: string, deviceId: string) =>
     request<{ status: string; state: string }>(

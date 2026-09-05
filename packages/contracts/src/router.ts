@@ -28,3 +28,29 @@ export interface OnboardRouterRequest {
 export interface OnboardRouterResponse {
   readonly router: RouterSummary;
 }
+
+export interface DeviceDTO {
+  readonly id: string;
+  readonly mac: string | null;
+  readonly name: string | null;
+  readonly ip: string | null;
+  readonly online: boolean;
+  readonly internetAccess: boolean;
+  readonly firstSeenAt: string;
+  readonly lastSeenAt: string;
+  readonly downspeed: number;
+  readonly upspeed: number;
+  readonly downloadTotal: number;
+  readonly uploadTotal: number;
+  readonly connectionType: 'wired' | 'wifi_2g' | 'wifi_5g' | 'guest' | 'unknown';
+}
+
+export interface TimeseriesPoint {
+  readonly timestamp: string;
+  readonly downspeed: number;
+  readonly upspeed: number;
+  readonly deviceCount: number;
+  readonly cpuLoad: number;
+  readonly memUsed: number;
+}
+

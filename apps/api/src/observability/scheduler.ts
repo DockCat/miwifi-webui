@@ -49,6 +49,8 @@ export class PollingScheduler {
   private readonly retention: RetentionPolicy;
   /** Most recent in-memory status per router (never persisted on read). */
   private latestStatus = new Map<string, Record<string, unknown>>();
+  /** Most recent in-memory devices per router (keyed by mac, ip, and deviceKey). */
+  private latestDevices = new Map<string, Map<string, NormalizedDevice>>();
 
   constructor(
     private readonly pool: pg.Pool,
@@ -65,6 +67,11 @@ export class PollingScheduler {
   /** In-memory status snapshot for read endpoints (no DB write). */
   getStatus(routerId: string): Record<string, unknown> | null {
     return this.latestStatus.get(routerId) ?? null;
+  }
+
+  /** In-memory devices snapshot with real-time bandwidth & traffic stats. */
+  getLatestDevices(routerId: string): Map<string, NormalizedDevice> | null {
+    return this.latestDevices.get(routerId) ?? null;
   }
 
   async start(): Promise<void> {
@@ -233,9 +240,29 @@ export class PollingScheduler {
           });
         }
 
+        const deviceMap = new Map<string, NormalizedDevice>();
+        for (const device of devices) {
+          const key = deviceKey(device.mac, device.ip);
+          if (key) deviceMap.set(key, device);
+          if (device.mac) deviceMap.set(`mac:${device.mac}`, device);
+          if (device.ip) deviceMap.set(`ip:${device.ip}`, device);
+        }
+        this.latestDevices.set(router.id, deviceMap);
+
         this.events.publish('inventory', {
           routerId: router.id,
-          count: devices.length
+          count: devices.filter((d) => d.online).length,
+          devices: devices.map((d) => ({
+            mac: d.mac,
+            name: d.name,
+            ip: d.ip,
+            online: d.online,
+            downspeed: d.downspeed,
+            upspeed: d.upspeed,
+            downloadTotal: d.downloadTotal,
+            uploadTotal: d.uploadTotal,
+            connectionType: d.connectionType
+          }))
         });
       } catch {
         // Router unreachable: next reconciliation pass will mark devices

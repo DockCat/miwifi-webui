@@ -14,18 +14,30 @@ import {
 } from '../src/index.js';
 
 describe('normalizeDevice', () => {
-  it('normalizes a typical MiWiFi entry', () => {
+  it('normalizes a typical MiWiFi entry with traffic statistics', () => {
     const device = normalizeDevice({
       mac: 'aa:bb:cc:dd:ee:ff',
       name: 'living-room-tv',
       ip: '192.168.31.108',
-      online: true
+      online: true,
+      type: 2,
+      statistics: {
+        downspeed: '1048576',
+        upspeed: '524288',
+        download: '500000000',
+        upload: '100000000'
+      }
     });
     assert.deepEqual(device, {
       mac: 'AA:BB:CC:DD:EE:FF',
       name: 'living-room-tv',
       ip: '192.168.31.108',
-      online: true
+      online: true,
+      downspeed: 1048576,
+      upspeed: 524288,
+      downloadTotal: 500000000,
+      uploadTotal: 100000000,
+      connectionType: 'wifi_5g'
     });
   });
 

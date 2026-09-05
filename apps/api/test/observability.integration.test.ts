@@ -173,3 +173,45 @@ describe('device inventory endpoint', () => {
     assert.equal(response.statusCode, 401);
   });
 });
+
+describe('telemetry timeseries aggregation endpoint', () => {
+  it('aggregates snapshots into bucket points for UniFi charts', async () => {
+    await observability.insertTelemetrySnapshot(routerId, {
+      wanDownspeed: 2048000,
+      wanUpspeed: 1024000,
+      deviceCount: 6,
+      cpuLoad: 30,
+      memUsed: 150
+    });
+
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/routers/${routerId}/telemetry/timeseries?range=1d`,
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 200);
+    const body = JSON.parse(response.body) as {
+      points: {
+        timestamp: string;
+        downspeed: number;
+        upspeed: number;
+        deviceCount: number;
+        cpuLoad: number;
+      }[];
+    };
+    assert.ok(Array.isArray(body.points));
+    assert.ok(body.points.length >= 1);
+    const latest = body.points[body.points.length - 1]!;
+    assert.ok(latest.downspeed > 0);
+    assert.ok(latest.deviceCount >= 6);
+  });
+
+  it('rejects unauthenticated access to timeseries', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: `/api/routers/${routerId}/telemetry/timeseries?range=1d`
+    });
+    assert.equal(response.statusCode, 401);
+  });
+});
+

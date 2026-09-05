@@ -8,6 +8,8 @@ import { Card, EmptyState, StatusBadge } from '../components.js';
 import { InternetAccessControl } from '../InternetAccessControl.js';
 import { useI18n } from '../i18n-context.js';
 import { formatTime } from './DashboardView.js';
+import { formatSpeed } from '../components/charts/UniFiAreaChart.js';
+import { connectionTypeLabel, formatBytes } from '../components/DeviceUsageDrawer.js';
 
 /** Local view-state: device id -> internetAccess override after a mutation. */
 type AccessOverride = Record<string, boolean | null>;
@@ -92,6 +94,22 @@ export function DevicesView({
                 </dd>
               </div>
               <div>
+                <dt>{t('devices.connection')}</dt>
+                <dd>{connectionTypeLabel(device.connectionType)}</dd>
+              </div>
+              <div>
+                <dt>{t('devices.downspeed')} / {t('devices.upspeed')}</dt>
+                <dd className="mono">
+                  ↓ {formatSpeed(device.downspeed ?? 0)} / ↑ {formatSpeed(device.upspeed ?? 0)}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('devices.traffic_total')}</dt>
+                <dd className="mono">
+                  {formatBytes((device.downloadTotal ?? 0) + (device.uploadTotal ?? 0))}
+                </dd>
+              </div>
+              <div>
                 <dt>{t('devices.first_seen')}</dt>
                 <dd>{formatTime(device.firstSeenAt)}</dd>
               </div>
@@ -130,10 +148,12 @@ export function DevicesView({
           <thead>
             <tr>
               <th>{t('devices.name')}</th>
+              <th>{t('devices.connection')}</th>
               <th>{t('devices.ip')}</th>
               <th>{t('devices.mac')}</th>
               <th>{t('devices.status')}</th>
-              <th>{t('devices.first_seen')}</th>
+              <th>Speed</th>
+              <th>Traffic</th>
               <th>{t('devices.last_seen')}</th>
               <th>Internet</th>
             </tr>
@@ -151,6 +171,11 @@ export function DevicesView({
                   onClick={() => onOpenDevice(device.id)}
                 >
                   <td>{device.name ?? device.mac ?? device.id}</td>
+                  <td>
+                    <span className="badge badge-connection-type">
+                      {connectionTypeLabel(device.connectionType)}
+                    </span>
+                  </td>
                   <td>{device.ip ?? '—'}</td>
                   <td className="mono">{device.mac ?? '—'}</td>
                   <td>
@@ -159,7 +184,16 @@ export function DevicesView({
                       label={device.online ? t('status.online') : t('status.offline')}
                     />
                   </td>
-                  <td>{formatTime(device.firstSeenAt)}</td>
+                  <td className="mono" style={{ fontSize: '0.8rem' }}>
+                    {device.online && ((device.downspeed ?? 0) > 0 || (device.upspeed ?? 0) > 0)
+                      ? `↓ ${formatSpeed(device.downspeed ?? 0)}`
+                      : '—'}
+                  </td>
+                  <td className="mono" style={{ fontSize: '0.8rem' }}>
+                    {(device.downloadTotal ?? 0) + (device.uploadTotal ?? 0) > 0
+                      ? formatBytes((device.downloadTotal ?? 0) + (device.uploadTotal ?? 0))
+                      : '—'}
+                  </td>
                   <td>{formatTime(device.lastSeenAt)}</td>
                   <td
                     onClick={(event) => {

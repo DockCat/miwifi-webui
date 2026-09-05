@@ -148,4 +148,50 @@ export class ObservabilityRepository {
     );
     return result.rows;
   }
+
+  /** Timeseries bucket aggregation for UniFi-style charts (1D/1W/1M). */
+  async queryTimeseries(
+    routerId: string,
+    range: '1d' | '1w' | '1m' = '1d'
+  ): Promise<TimeseriesBucketPoint[]> {
+    let bucketSeconds = 300;
+    let intervalStr = '24 hours';
+    if (range === '1w') {
+      bucketSeconds = 3600;
+      intervalStr = '7 days';
+    } else if (range === '1m') {
+      bucketSeconds = 21600;
+      intervalStr = '30 days';
+    }
+
+    const query = `
+      SELECT
+        to_char(to_timestamp(floor(extract(epoch from captured_at) / $2) * $2) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "timestamp",
+        COALESCE(AVG(NULLIF((payload->>'wanDownspeed')::numeric, NULL)), 0)::float AS downspeed,
+        COALESCE(AVG(NULLIF((payload->>'wanUpspeed')::numeric, NULL)), 0)::float AS upspeed,
+        COALESCE(ROUND(AVG(NULLIF((payload->>'deviceCount')::numeric, NULL))), 0)::int AS "deviceCount",
+        COALESCE(ROUND(AVG(NULLIF((payload->>'cpuLoad')::numeric, NULL))), 0)::int AS "cpuLoad",
+        COALESCE(ROUND(AVG(NULLIF((payload->>'memUsed')::numeric, NULL))), 0)::int AS "memUsed"
+      FROM telemetry_snapshot
+      WHERE router_id = $1 AND captured_at >= now() - $3::interval
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `;
+    const result = await this.pool.query<TimeseriesBucketPoint>(query, [
+      routerId,
+      bucketSeconds,
+      intervalStr
+    ]);
+    return result.rows;
+  }
 }
+
+export interface TimeseriesBucketPoint {
+  readonly timestamp: string;
+  readonly downspeed: number;
+  readonly upspeed: number;
+  readonly deviceCount: number;
+  readonly cpuLoad: number;
+  readonly memUsed: number;
+}
+
