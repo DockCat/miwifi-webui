@@ -14,6 +14,8 @@ export interface InvestigationRow {
   readonly finding: string | null;
   readonly createdAt: Date;
   readonly completedAt: Date | null;
+  /** alias -> original mapping used when egress was pseudonymized. */
+  readonly aliasLegend: ReadonlyArray<{ alias: string; original: string }>;
 }
 
 export interface EvidenceRow {
@@ -36,6 +38,7 @@ export class InvestigationRepository {
        VALUES ($1, $2, $3, $4, 'running')
        RETURNING id::text AS id, started_by::text AS "startedBy", provider,
                  model, status, question, finding,
+                 alias_legend AS "aliasLegend",
                  created_at AS "createdAt", completed_at AS "completedAt"`,
       [input.startedBy, input.provider, input.model, input.question]
     );
@@ -45,13 +48,14 @@ export class InvestigationRepository {
   async complete(
     id: string,
     status: 'completed' | 'failed',
-    finding: string | null
+    finding: string | null,
+    aliasLegend: ReadonlyArray<{ alias: string; original: string }> = []
   ): Promise<void> {
     await this.pool.query(
       `UPDATE investigation
-       SET status = $2, finding = $3, completed_at = now()
+       SET status = $2, finding = $3, alias_legend = $4::jsonb, completed_at = now()
        WHERE id = $1`,
-      [id, status, finding]
+      [id, status, finding, JSON.stringify(aliasLegend)]
     );
   }
 
@@ -71,6 +75,7 @@ export class InvestigationRepository {
     const result = await this.pool.query<InvestigationRow>(
       `SELECT id::text AS id, started_by::text AS "startedBy", provider, model,
               status, question, finding,
+              alias_legend AS "aliasLegend",
               created_at AS "createdAt", completed_at AS "completedAt"
        FROM investigation ORDER BY created_at DESC LIMIT $1`,
       [limit]
@@ -82,6 +87,7 @@ export class InvestigationRepository {
     const result = await this.pool.query<InvestigationRow>(
       `SELECT id::text AS id, started_by::text AS "startedBy", provider, model,
               status, question, finding,
+              alias_legend AS "aliasLegend",
               created_at AS "createdAt", completed_at AS "completedAt"
        FROM investigation WHERE id = $1`,
       [id]

@@ -52,8 +52,10 @@ Status: `DONE` — completed 2026-09-05.
 * Provider abstraction: disabled (default) / local / external via env
   (AI_PROVIDER_MODE/BASE_URL/MODEL/API_KEY); OpenAI-compatible
   chat-completions client; local providers pass identifiers, external
-  providers get pseudonymized egress (AI_EGRESS_ALLOW_* data-category
-  switches, default all false).
+  providers get pseudonymized egress (MAC/IP/names always aliased — the
+  former AI_EGRESS_ALLOW_* per-category switches were removed in the
+  2026-09-05 security pass as unmanageable; readability is restored via the
+  alias legend stored with each investigation, never sent to the provider).
 * Tool registry — five read-only tools, each with structural validation,
   bounded limits (<=50) and time windows (<=30 days), fixed parameterized
   SQL only: router_status, device_state, presence_history, audit_history,

@@ -356,6 +356,8 @@ AI is disabled by default.
 
 External data egress requires explicit administrator configuration.
 
+External providers always receive pseudonymized context: MAC addresses, IP addresses, and raw device names are replaced with stable aliases, with no per-category opt-out. The alias-to-original legend is stored with the local investigation record only and must never be sent to a provider.
+
 v1 AI investigation is read-only.
 
 AI tools must not initially include:

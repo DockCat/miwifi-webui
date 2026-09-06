@@ -6,13 +6,25 @@
  * access (each tool issues fixed, parameterized queries only). The
  * registry is the ONLY surface an AI provider can call; mutation tools
  * cannot exist here — there is no write tool at all.
+ *
+ * Name pseudonymization happens at this output layer (the primary
+ * defense): in external mode a tool NEVER emits a raw device name. MAC/IP
+ * get a second layer downstream in pseudonymize().
  */
 import type pg from 'pg';
+import { deviceNameFor, type AliasMap, type PrivacyConfig } from './privacy.js';
 
 export interface ToolContext {
   readonly pool: pg.Pool;
   readonly routerId: string;
+  /** Egress privacy for this investigation (derived from provider mode). */
+  readonly privacy: PrivacyConfig;
+  /** Shared per-investigation alias map (question + all tool calls). */
+  readonly aliases: AliasMap;
 }
+
+/** What callers supply: runInvestigation fills in privacy + aliases. */
+export type ToolContextBase = Omit<ToolContext, 'privacy' | 'aliases'>;
 
 export interface ToolDefinition<I, O> {
   readonly name: string;
@@ -113,7 +125,8 @@ export const deviceStateTool: ToolDefinition<DeviceStateInput, DeviceStateOutput
     return {
       devices: result.rows.map((row: { id: string; name: string | null; online: boolean; internetAccess: boolean; lastSeenAt: Date }) => ({
         id: row.id,
-        name: row.name,
+        // External mode never emits raw names here (primary defense).
+        name: deviceNameFor(row.name, row.id, ctx.privacy, ctx.aliases),
         online: row.online,
         internetAccess: row.internetAccess,
         lastSeenAt: new Date(row.lastSeenAt).toISOString()
@@ -269,9 +282,18 @@ export const evidenceLookupTool: ToolDefinition<EvidenceLookupInput, EvidenceLoo
           [input.evidenceId, ctx.routerId]
         );
         const row = result.rows[0] as { name: string | null; mac: string | null; online: boolean } | undefined;
+        // Name goes through deviceNameFor (external mode never emits raw
+        // names); the mac fallback is aliased by pseudonymize() downstream
+        // when present in the summary string.
+        const displayName = deviceNameFor(
+          row?.name ?? null,
+          input.evidenceId,
+          ctx.privacy,
+          ctx.aliases
+        );
         return {
           found: Boolean(row),
-          summary: row ? `device ${row.name ?? row.mac ?? input.evidenceId.slice(0, 8)} online=${row.online}` : null
+          summary: row ? `device ${displayName} online=${row.online}` : null
         };
       }
       case 'audit_event': {

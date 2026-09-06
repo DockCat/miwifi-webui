@@ -15,7 +15,7 @@ import { requireAuth } from '../auth/plugin.js';
 import type { AuditWriter } from '../audit/writer.js';
 import type { InvestigationRepository } from '../ai/repository.js';
 import { loadProviderConfig, runInvestigation } from '../ai/provider.js';
-import type { ToolContext } from '../ai/tools.js';
+import type { ToolContextBase } from '../ai/tools.js';
 
 export interface InvestigationRoutesOptions {
   repository: InvestigationRepository;
@@ -60,6 +60,7 @@ export function registerInvestigationRoutes(
         finding: row.finding,
         provider: row.provider,
         model: row.model,
+        aliasLegend: row.aliasLegend,
         createdAt: row.createdAt.toISOString(),
         completedAt: row.completedAt?.toISOString() ?? null
       },
@@ -106,13 +107,20 @@ export function registerInvestigationRoutes(
       metadata: { provider: provider.mode, model: provider.model ?? '' }
     });
 
-    const ctx: ToolContext = { pool: options.pool, routerId };
+    // Base context only: runInvestigation fills in privacy + aliases (the
+  // route must not need to know the privacy policy details).
+  const ctx: ToolContextBase = { pool: options.pool, routerId };
     try {
       const result = await runInvestigation(provider, ctx, question);
       for (const link of result.evidence) {
         await repository.addEvidence(investigation.id, link);
       }
-      await repository.complete(investigation.id, 'completed', result.finding);
+      await repository.complete(
+        investigation.id,
+        'completed',
+        result.finding,
+        result.aliasLegend
+      );
       await audit.record({
         action: 'ai.investigation_completed',
         actorId: request.authUser!.id,

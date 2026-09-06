@@ -3,14 +3,22 @@
  *
  * Modes: disabled (default) | local | external. Local providers use an
  * OpenAI-compatible chat-completions endpoint; the same client serves an
- * external provider — the difference is privacy configuration, which
- * pseudonymizes all egress for external mode.
+ * external provider — the difference is privacy: external mode ALWAYS
+ * pseudonymizes identifiers (MAC/IP/names). There is no per-category
+ * opt-out; readability is restored via the alias legend, which is stored
+ * locally with the investigation and never sent to the provider.
  *
  * The agent loop: system prompt (read-only investigator) + user question,
  * function-calling loop over the tool registry, bounded iterations.
  */
-import { DEFAULT_PRIVACY, pseudonymize, AliasMap, type PrivacyConfig } from './privacy.js';
-import { runTool, INVESTIGATION_TOOLS, type ToolContext } from './tools.js';
+import {
+  EXTERNAL_PRIVACY,
+  LOCAL_PRIVACY,
+  pseudonymize,
+  AliasMap,
+  type PrivacyConfig
+} from './privacy.js';
+import { runTool, INVESTIGATION_TOOLS, type ToolContext, type ToolContextBase } from './tools.js';
 
 export type ProviderMode = 'disabled' | 'local' | 'external';
 
@@ -20,7 +28,7 @@ export interface ProviderConfig {
   readonly baseUrl: string | null;
   readonly apiKey: string | null;
   readonly model: string | null;
-  /** External egress privacy (defaults: all identifiers pseudonymized). */
+  /** Egress privacy — derived from the mode, not configurable. */
   readonly privacy: PrivacyConfig;
 }
 
@@ -29,7 +37,7 @@ export const DISABLED_PROVIDER: ProviderConfig = {
   baseUrl: null,
   apiKey: null,
   model: null,
-  privacy: DEFAULT_PRIVACY
+  privacy: EXTERNAL_PRIVACY
 };
 
 /** Load provider config from environment; anything missing => disabled. */
@@ -46,11 +54,7 @@ export function loadProviderConfig(): ProviderConfig {
     baseUrl,
     apiKey,
     model,
-    privacy: {
-      allowMac: mode === 'local' || process.env.AI_EGRESS_ALLOW_MAC === 'true',
-      allowIp: mode === 'local' || process.env.AI_EGRESS_ALLOW_IP === 'true',
-      allowNames: mode === 'local' || process.env.AI_EGRESS_ALLOW_NAMES === 'true'
-    }
+    privacy: mode === 'local' ? LOCAL_PRIVACY : EXTERNAL_PRIVACY
   };
 }
 
@@ -62,6 +66,8 @@ export interface EvidenceLink {
 export interface InvestigationResult {
   readonly finding: string;
   readonly evidence: readonly EvidenceLink[];
+  /** alias -> original mapping used during pseudonymized egress (local-only). */
+  readonly aliasLegend: ReadonlyArray<{ alias: string; original: string }>;
 }
 
 const MAX_ITERATIONS = 8;
@@ -83,7 +89,7 @@ interface ChatMessage {
  */
 export async function runInvestigation(
   config: ProviderConfig,
-  ctx: ToolContext,
+  ctx: ToolContextBase,
   question: string
 ): Promise<InvestigationResult> {
   if (config.mode === 'disabled') {
@@ -91,6 +97,13 @@ export async function runInvestigation(
   }
 
   const aliases = new AliasMap();
+  // Tools and the question share one AliasMap so the same device always
+  // maps to the same alias across the whole conversation.
+  const toolCtx: ToolContext = {
+    ...ctx,
+    privacy: config.privacy,
+    aliases
+  };
   // The question itself flows to the provider; pseudonymize identifiers
   // found in it for external providers.
   const safeQuestion =
@@ -109,7 +122,7 @@ export async function runInvestigation(
     const message = choice.message as ChatMessage & { tool_calls?: ChatMessage['tool_calls'] };
 
     if (!message.tool_calls || message.tool_calls.length === 0) {
-      return { finding: message.content ?? '', evidence };
+      return { finding: message.content ?? '', evidence, aliasLegend: aliases.legend() };
     }
 
     messages.push(message);
@@ -123,7 +136,7 @@ export async function runInvestigation(
           const id = args['evidenceId'] as string | undefined;
           if (kind && id) evidence.push({ evidenceKind: kind, evidenceId: id });
         }
-        result = await runTool(ctx, call.function.name, args);
+        result = await runTool(toolCtx, call.function.name, args);
       } catch {
         result = null;
       }
@@ -143,7 +156,7 @@ export async function runInvestigation(
   messages.push({ role: 'user', content: 'Summarize your findings now with evidence ids.' });
   const final = await chatCompletion(config, messages);
   const finalMessage = final.choices?.[0]?.message as ChatMessage | undefined;
-  return { finding: finalMessage?.content ?? '', evidence };
+  return { finding: finalMessage?.content ?? '', evidence, aliasLegend: aliases.legend() };
 }
 
 async function chatCompletion(

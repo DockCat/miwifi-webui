@@ -281,9 +281,9 @@ AI is disabled by default.
 
 No external provider should receive router or device information until the administrator explicitly configures and enables that provider.
 
-External providers should receive minimized or pseudonymized context by default.
+External providers should receive minimized or pseudonymized context — always, with no per-category opt-out.
 
-Sensitive fields such as the following should not be transmitted automatically:
+Sensitive fields such as the following must not be transmitted automatically:
 
 * router password;
 * `stok`;
@@ -293,7 +293,7 @@ Sensitive fields such as the following should not be transmitted automatically:
 * serial numbers;
 * raw secret-bearing URLs.
 
-MAC addresses, IP addresses, and raw device names should be exposed externally only when the investigation genuinely requires them and the administrator has enabled the relevant data category.
+For external providers, MAC addresses, IP addresses, and raw device names are **always** replaced with stable aliases (`device_01`…) before egress. The alias-to-original legend is stored with the local investigation record (never sent to the provider) so findings remain readable to the administrator. Local providers (the administrator's own endpoint) receive identifiers as-is. Note: the investigation question text itself is sent verbatim — do not type sensitive names into questions when using an external provider.
 
 ## UI direction
 
@@ -453,10 +453,9 @@ pnpm --filter @miwifi-webui/api start
 | `API_PORT` / `API_HOST` | no | API listen port (3001) / host (127.0.0.1) |
 | `APP_MASTER_KEY` | for routers | 32-byte base64 master key sealing router credentials (`openssl rand -base64 32`); must live outside PostgreSQL |
 | `LOG_LEVEL` | no | pino level (info) |
-| `AI_PROVIDER_MODE` | no | `local` / `external` (unset = AI disabled) |
+| `AI_PROVIDER_MODE` | no | `local` / `external` (unset = AI disabled). Local: identifiers pass through. External: MAC/IP/names always pseudonymized |
 | `AI_PROVIDER_BASE_URL` / `AI_PROVIDER_MODEL` | for AI | OpenAI-compatible endpoint + model |
 | `AI_PROVIDER_API_KEY` | no | Provider API key when required |
-| `AI_EGRESS_ALLOW_MAC` / `_IP` / `_NAMES` | no | External-provider data categories; default false (pseudonymized) |
 | `RETENTION_TELEMETRY_DAYS` | no | Default 90 |
 | `RETENTION_PRESENCE_DAYS` | no | Default 365 |
 | `RETENTION_AUDIT_DAYS` | no | Default 365 |
@@ -466,7 +465,7 @@ pnpm --filter @miwifi-webui/api start
 
 * **First-run bootstrap** creates the single administrator and then closes permanently (localhost-only; ADR 0003). Local recovery: `pnpm --filter @miwifi-webui/api admin:reset-password <username>` with `ADMIN_PASSWORD` in the environment.
 * **Router credentials** are sealed with AES-256-GCM under `APP_MASTER_KEY`; losing the key makes stored credentials unrecoverable.
-* **AI is disabled by default** and fully read-only when enabled; external providers receive pseudonymized context unless data categories are explicitly allowed.
+* **AI is disabled by default** and fully read-only when enabled; external providers always receive pseudonymized context (MAC/IP/names aliased), with the alias legend stored locally for readable findings.
 * **Retention** runs as a daily scheduled pass; see the table above for defaults.
 * **Backup/restore**: see [docs/backup-restore.md](docs/backup-restore.md) — the master key must be stored separately from database backups.
 * **LAN deployment**: use HTTPS (reverse proxy or trusted CA) for authenticated LAN access; cookies reflect the actual protocol.

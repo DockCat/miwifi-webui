@@ -158,7 +158,7 @@ export const api = {
 
   investigation: (id: string) =>
     request<{
-      investigation: InvestigationSummary;
+      investigation: InvestigationDetail;
       evidence: { id: string; kind: string; evidenceId: string }[];
     }>(`/api/investigations/${id}`),
 
@@ -177,4 +177,10 @@ export interface InvestigationSummary {
   provider: string;
   createdAt: string;
   completedAt: string | null;
+}
+
+export interface InvestigationDetail extends InvestigationSummary {
+  model: string | null;
+  /** alias -> original mapping used when the provider saw pseudonymized data. */
+  aliasLegend: { alias: string; original: string }[];
 }

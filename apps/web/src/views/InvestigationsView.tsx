@@ -3,7 +3,7 @@
  * findings with inspectable evidence ids.
  */
 import { useEffect, useState } from 'react';
-import { api, ApiError, type RouterSummary } from '../api.js';
+import { api, ApiError, type InvestigationDetail, type RouterSummary } from '../api.js';
 import { Card, EmptyState } from '../components.js';
 import { useI18n } from '../i18n-context.js';
 
@@ -29,7 +29,7 @@ export function InvestigationsView({ router }: { router: RouterSummary | null })
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<{
-    investigation: InvestigationSummary;
+    investigation: InvestigationDetail;
     evidence: EvidenceLink[];
   } | null>(null);
 
@@ -123,6 +123,27 @@ export function InvestigationsView({ router }: { router: RouterSummary | null })
       {selected && (
         <Card title={t('investigations.finding')}>
           <p className="finding-text">{selected.investigation.finding ?? '—'}</p>
+          {selected.investigation.aliasLegend.length > 0 && (
+            <div className="alias-legend">
+              <h3>{t('investigations.alias_legend')}</h3>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>{t('investigations.alias')}</th>
+                    <th>{t('investigations.original')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selected.investigation.aliasLegend.map((entry) => (
+                    <tr key={entry.alias}>
+                      <td className="mono">{entry.alias}</td>
+                      <td className="mono">{entry.original}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <h3>{t('investigations.evidence')}</h3>
           {selected.evidence.length === 0 ? (
             <EmptyState>{t('investigations.no_evidence')}</EmptyState>

@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   AliasMap,
-  DEFAULT_PRIVACY,
+  EXTERNAL_PRIVACY,
+  LOCAL_PRIVACY,
   deviceNameFor,
   pseudonymize
 } from '../src/ai/privacy.js';
@@ -20,9 +21,10 @@ import {
   deviceStateTool,
   evidenceLookupTool,
   presenceHistoryTool,
-  routerStatusTool
+  routerStatusTool,
+  type ToolContext
 } from '../src/ai/tools.js';
-import { DISABLED_PROVIDER, loadProviderConfig } from '../src/ai/provider.js';
+import { DISABLED_PROVIDER, loadProviderConfig, runInvestigation } from '../src/ai/provider.js';
 import process from 'node:process';
 
 describe('provider default state', () => {
@@ -47,17 +49,24 @@ describe('provider default state', () => {
     process.env.AI_PROVIDER_MODEL = 'qwen3:8b';
     const config = loadProviderConfig();
     assert.equal(config.mode, 'local');
-    // Local mode passes identifiers through by default.
+    // Local mode passes identifiers through (endpoint is the admin's own machine).
     assert.equal(config.privacy.allowMac, true);
+    assert.equal(config.privacy.allowIp, true);
+    assert.equal(config.privacy.allowNames, true);
     delete process.env.AI_PROVIDER_MODE;
     delete process.env.AI_PROVIDER_BASE_URL;
     delete process.env.AI_PROVIDER_MODEL;
   });
 
-  it('external mode pseudonymizes by default', () => {
+  it('external mode pseudonymizes by default and has no opt-out switches', () => {
     process.env.AI_PROVIDER_MODE = 'external';
     process.env.AI_PROVIDER_BASE_URL = 'https://api.example.com/v1';
     process.env.AI_PROVIDER_MODEL = 'gpt-test';
+    // Even if legacy egress switches linger in some environment, they are
+    // ignored: external mode is always fully pseudonymized.
+    process.env.AI_EGRESS_ALLOW_MAC = 'true';
+    process.env.AI_EGRESS_ALLOW_IP = 'true';
+    process.env.AI_EGRESS_ALLOW_NAMES = 'true';
     const config = loadProviderConfig();
     assert.equal(config.mode, 'external');
     assert.equal(config.privacy.allowMac, false);
@@ -66,6 +75,9 @@ describe('provider default state', () => {
     delete process.env.AI_PROVIDER_MODE;
     delete process.env.AI_PROVIDER_BASE_URL;
     delete process.env.AI_PROVIDER_MODEL;
+    delete process.env.AI_EGRESS_ALLOW_MAC;
+    delete process.env.AI_EGRESS_ALLOW_IP;
+    delete process.env.AI_EGRESS_ALLOW_NAMES;
   });
 });
 
@@ -112,7 +124,12 @@ describe('tool registry', () => {
   });
 
   it('runTool returns null for unknown tool names (no escape hatch)', () => {
-    const ctx = { pool: {} as never, routerId: 'r1' };
+    const ctx = {
+      pool: {} as never,
+      routerId: 'r1',
+      privacy: EXTERNAL_PRIVACY,
+      aliases: new AliasMap()
+    };
     assert.equal(runTool(ctx, 'block_internet', {}), null);
     assert.equal(runTool(ctx, 'arbitrary_sql', {}), null);
     assert.equal(runTool(ctx, 'exec', {}), null);
@@ -133,7 +150,7 @@ describe('pseudonymization', () => {
         ip: '192.168.31.108',
         note: 'device AA:BB:CC:DD:EE:01 seen at 192.168.31.108'
       },
-      DEFAULT_PRIVACY,
+      EXTERNAL_PRIVACY,
       aliases
     ) as { mac: string; ip: string; note: string };
     assert.ok(!result.mac.includes('AA:BB'), 'mac aliased');
@@ -143,21 +160,44 @@ describe('pseudonymization', () => {
     assert.ok(result.note.includes('device_01'), 'alias present');
   });
 
-  it('keeps identifiers when the category is allowed', () => {
+  it('keeps identifiers when the mode is local', () => {
     const aliases = new AliasMap();
-    const config = { allowMac: true, allowIp: true, allowNames: false };
     const result = pseudonymize(
       { mac: 'AA:BB:CC:DD:EE:02', ip: '10.0.0.5' },
-      config,
+      LOCAL_PRIVACY,
       aliases
     ) as { mac: string; ip: string };
     assert.equal(result.mac, 'AA:BB:CC:DD:EE:02');
     assert.equal(result.ip, '10.0.0.5');
   });
 
+  it('pseudonymizes device names by key in external mode (nested included)', () => {
+    const aliases = new AliasMap();
+    const result = pseudonymize(
+      {
+        name: 'living-room-tv',
+        nested: { name: 'SEN[1]TINEL-Device-Name', other: 'plain text' }
+      },
+      EXTERNAL_PRIVACY,
+      aliases
+    ) as { name: string; nested: { name: string; other: string } };
+    assert.ok(!result.name.includes('living-room'), 'outer name aliased');
+    assert.ok(!result.nested.name.includes('SEN[1]TINEL'), 'nested name aliased');
+    assert.equal(result.nested.other, 'plain text', 'non-name fields untouched');
+  });
+
+  it('keeps names in local mode', () => {
+    const aliases = new AliasMap();
+    const result = pseudonymize(
+      { name: 'living-room-tv' },
+      LOCAL_PRIVACY,
+      aliases
+    ) as { name: string };
+    assert.equal(result.name, 'living-room-tv');
+  });
+
   it('redacts secret-shaped keys and values regardless of config', () => {
     const aliases = new AliasMap();
-    const allowAll = { allowMac: true, allowIp: true, allowNames: true };
     const result = pseudonymize(
       {
         stok: 'abc123',
@@ -165,7 +205,7 @@ describe('pseudonymization', () => {
         password: 'hunter2',
         url: 'http://router/cgi-bin/luci/api/xqsystem/stok=SECRETTOKEN/router_info'
       },
-      allowAll,
+      LOCAL_PRIVACY,
       aliases
     ) as Record<string, string>;
     assert.equal(result['stok'], '[redacted]');
@@ -183,10 +223,168 @@ describe('pseudonymization', () => {
     assert.notEqual(first, third);
   });
 
-  it('deviceNameFor pseudonymizes raw names by default', () => {
+  it('deviceNameFor pseudonymizes raw names in external mode', () => {
     const aliases = new AliasMap();
-    assert.equal(deviceNameFor('living-room-tv', 'd-1', DEFAULT_PRIVACY, aliases), 'device_01');
-    const allow = { allowMac: false, allowIp: false, allowNames: true };
-    assert.equal(deviceNameFor('living-room-tv', 'd-1', allow, aliases), 'living-room-tv');
+    assert.equal(
+      deviceNameFor('living-room-tv', 'd-1', EXTERNAL_PRIVACY, aliases),
+      'device_01'
+    );
+    assert.equal(
+      deviceNameFor('living-room-tv', 'd-1', LOCAL_PRIVACY, aliases),
+      'living-room-tv'
+    );
+  });
+
+  it('AliasMap.legend() exposes the alias -> original mapping', () => {
+    const aliases = new AliasMap();
+    aliases.aliasFor('device', 'AA:BB:CC:DD:EE:03');
+    aliases.aliasFor('device', '192.168.31.5');
+    aliases.aliasFor('router', '192.168.31.1');
+    const legend = aliases.legend();
+    assert.equal(legend.length, 3);
+    // Sorted by alias for stable display.
+    assert.deepEqual(
+      legend.map((e) => e.alias),
+      ['device_01', 'device_02', 'router_03']
+    );
+    assert.ok(legend.some((e) => e.original === 'AA:BB:CC:DD:EE:03'));
+    assert.ok(legend.some((e) => e.original === '192.168.31.1'));
+  });
+});
+
+describe('name pseudonymization at the tool layer (M-1)', () => {
+  /** Recognizable sentinel so accidental name egress is detectable. */
+  const SENTINEL_NAME = 'SEN[1]TINEL-Device-Name';
+
+  function toolContext(
+    privacy: typeof EXTERNAL_PRIVACY | typeof LOCAL_PRIVACY
+  ): ToolContext {
+    // Mock pool keyed on the actual tool SQL fragments.
+    const pool = {
+      query: async (text: string) => {
+        // device_state: "... FROM device WHERE router_id = $1 ORDER BY online DESC ..."
+        if (text.includes('ORDER BY online DESC')) {
+          return {
+            rows: [
+              {
+                id: 'dev-sentinel',
+                name: SENTINEL_NAME,
+                online: true,
+                internetAccess: true,
+                lastSeenAt: new Date()
+              }
+            ]
+          };
+        }
+        // evidence_lookup (device): "SELECT name, mac, online FROM device WHERE id = $1::uuid ..."
+        if (text.includes('SELECT name, mac, online FROM device')) {
+          return {
+            rows: [
+              {
+                name: SENTINEL_NAME,
+                mac: 'AA:BB:CC:DD:EE:FF',
+                online: true
+              }
+            ]
+          };
+        }
+        return { rows: [] };
+      }
+    };
+    return {
+      pool: pool as never,
+      routerId: 'router-1',
+      privacy,
+      aliases: new AliasMap()
+    };
+  }
+
+  it('device_state never emits raw names in external mode', async () => {
+    const ctx = toolContext(EXTERNAL_PRIVACY);
+    const validated = deviceStateTool.validate({ limit: 5 });
+    assert.ok(validated);
+    const output = await deviceStateTool.execute(ctx, validated);
+    const blob = JSON.stringify(output);
+    assert.ok(!blob.includes(SENTINEL_NAME), 'raw name must not leave the tool');
+    assert.ok(blob.includes('device_'), 'alias present instead');
+  });
+
+  it('device_state keeps names in local mode', async () => {
+    const ctx = toolContext(LOCAL_PRIVACY);
+    const validated = deviceStateTool.validate({ limit: 5 });
+    assert.ok(validated);
+    const output = await deviceStateTool.execute(ctx, validated);
+    assert.ok(JSON.stringify(output).includes(SENTINEL_NAME));
+  });
+
+  it('evidence_lookup device summary never emits raw names in external mode', async () => {
+    const ctx = toolContext(EXTERNAL_PRIVACY);
+    const validated = evidenceLookupTool.validate({
+      evidenceKind: 'device',
+      evidenceId: 'dev-sentinel'
+    });
+    assert.ok(validated);
+    const output = await evidenceLookupTool.execute(ctx, validated);
+    const blob = JSON.stringify(output);
+    assert.ok(!blob.includes(SENTINEL_NAME), 'raw name must not leave the tool');
+  });
+
+  it('aliases stay consistent between tool calls for the same device', async () => {
+    const ctx = toolContext(EXTERNAL_PRIVACY);
+    const stateValidated = deviceStateTool.validate({ limit: 5 });
+    const lookupValidated = evidenceLookupTool.validate({
+      evidenceKind: 'device',
+      evidenceId: 'dev-sentinel'
+    });
+    assert.ok(stateValidated && lookupValidated);
+    const state = await deviceStateTool.execute(ctx, stateValidated);
+    const lookup = await evidenceLookupTool.execute(ctx, lookupValidated);
+    // Both must reference the same alias for the same device id.
+    const stateAlias = (state.devices[0] as { name: string }).name;
+    const lookupMatch = /device_\d+/.exec(JSON.stringify(lookup));
+    assert.ok(lookupMatch, 'lookup summary uses an alias');
+    assert.equal(stateAlias, lookupMatch[0], 'same alias across tools');
+  });
+});
+
+describe('alias legend in investigation results', () => {
+  it('runInvestigation returns the legend for pseudonymized egress', async () => {
+    // Minimal in-process provider: responds with a plain finding so the
+    // loop exits on the first iteration. The question contains identifiers
+    // that external mode must alias — and the legend must recover them.
+    const calls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: unknown, init?: { body?: string }) => {
+      calls.push(String(init?.body ?? ''));
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'finding: device_01 was offline' } }] }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    try {
+      const result = await runInvestigation(
+        {
+          mode: 'external',
+          baseUrl: 'http://provider.test/v1',
+          apiKey: null,
+          model: 'test-model',
+          privacy: EXTERNAL_PRIVACY
+        },
+        {
+          pool: { query: async () => ({ rows: [] }) } as never,
+          routerId: 'router-1'
+        },
+        'Why did 192.168.31.108 (AA:BB:CC:DD:EE:01) disconnect at 14:32?'
+      );
+      // Egress was pseudonymized...
+      assert.ok(!calls.join('\n').includes('192.168.31.108'), 'no raw IP sent');
+      assert.ok(!calls.join('\n').includes('AA:BB:CC:DD:EE:01'), 'no raw MAC sent');
+      // ...and the legend maps the aliases back to the originals. IPs carry
+      // an ip: prefix key in the legend (they share the device alias space).
+      assert.ok(result.aliasLegend.some((e) => e.original === 'ip:192.168.31.108'));
+      assert.ok(result.aliasLegend.some((e) => e.original === 'AA:BB:CC:DD:EE:01'));
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

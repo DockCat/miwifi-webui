@@ -68,6 +68,14 @@ weak personal password on a loopback-bound port.
 
 ## Deferred before, now fixed by the 2026-09-05 review pass
 
+* M-1 `AI_EGRESS_ALLOW_NAMES` gap — external mode now pseudonymizes
+  MAC/IP/names unconditionally; the three `AI_EGRESS_ALLOW_*` switches were
+  removed entirely (mode is the single privacy axis: local = identifiers
+  pass through, external = always aliased). Tool outputs never carry raw
+  names in external mode; `pseudonymize` also guards name-bearing keys.
+  The alias legend is stored with each investigation (local DB + UI) so
+  findings remain readable without relaxing egress.
+
 * M-2 security response headers — API `onSend` hook + nginx `add_header`.
 * M-3 `WEB_PORT != 80` CSRF/Origin mismatch — nginx now forwards
   `$http_host` (host:port).
