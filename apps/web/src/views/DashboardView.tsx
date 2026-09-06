@@ -30,6 +30,8 @@ interface StatusPayload {
   unreachable?: boolean;
   wanDownspeed?: number;
   wanUpspeed?: number;
+  wanDownloadTotal?: number;
+  wanUploadTotal?: number;
   upTimeSeconds?: number;
   temperature?: number;
 }
@@ -61,6 +63,7 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
   const [recentEvents, setRecentEvents] = useState<PresenceEvent[]>([]);
   const [timeseries, setTimeseries] = useState<TimeseriesPoint[]>([]);
   const [range, setRange] = useState<'1d' | '1w' | '1m'>('1d');
+  const [trafficTab, setTrafficTab] = useState<'total' | 'live'>('total');
   const [clientTab, setClientTab] = useState<'all' | 'wired' | 'wireless' | 'guest'>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
 
@@ -175,10 +178,18 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
           ? guestDevices
           : onlineDevices;
 
-  // Traffic totals
-  const totalDownload = devices.reduce((sum, d) => sum + (d.downloadTotal ?? 0), 0);
-  const totalUpload = devices.reduce((sum, d) => sum + (d.uploadTotal ?? 0), 0);
-  const totalIdentified = totalDownload + totalUpload;
+  // --- Traffic calculations ---
+  const wanDownloadTotal = status?.wanDownloadTotal ?? 0;
+  const wanUploadTotal = status?.wanUploadTotal ?? 0;
+  const wanTotalTraffic = wanDownloadTotal + wanUploadTotal;
+
+  const deviceDownloadSum = devices.reduce((sum, d) => sum + (d.downloadTotal ?? 0), 0);
+  const deviceUploadSum = devices.reduce((sum, d) => sum + (d.uploadTotal ?? 0), 0);
+  const totalIdentified = deviceDownloadSum + deviceUploadSum;
+
+  const totalDownload = deviceDownloadSum > 0 ? deviceDownloadSum : wanDownloadTotal;
+  const totalUpload = deviceUploadSum > 0 ? deviceUploadSum : wanUploadTotal;
+  const displayTotalTraffic = totalIdentified > 0 ? totalIdentified : wanTotalTraffic;
 
   // Top devices by cumulative traffic
   const sortedByTraffic = [...devices]
@@ -190,21 +201,55 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
         ((a.downloadTotal ?? 0) + (a.uploadTotal ?? 0))
     );
 
-  const topTrafficSegments = sortedByTraffic.slice(0, 4).map((d, i) => ({
+  const cumulativeSegments = sortedByTraffic.slice(0, 4).map((d, i) => ({
     label: d.name ?? d.mac ?? d.id,
     value: (d.downloadTotal ?? 0) + (d.uploadTotal ?? 0),
     color: DONUT_COLORS[i % DONUT_COLORS.length]!,
     key: d.id
   }));
 
-  const otherTraffic = sortedByTraffic
+  const otherCumulativeTraffic = sortedByTraffic
     .slice(4)
     .reduce((sum, d) => sum + (d.downloadTotal ?? 0) + (d.uploadTotal ?? 0), 0);
 
-  if (otherTraffic > 0) {
-    topTrafficSegments.push({
+  if (otherCumulativeTraffic > 0) {
+    cumulativeSegments.push({
       label: 'Other',
-      value: otherTraffic,
+      value: otherCumulativeTraffic,
+      color: '#6b7280',
+      key: 'other'
+    });
+  }
+
+  // Live rate calculations
+  const wanDownspeed = status?.wanDownspeed ?? 0;
+  const wanUpspeed = status?.wanUpspeed ?? 0;
+  const liveThroughput = wanDownspeed + wanUpspeed;
+
+  const sortedByLiveRate = [...onlineDevices]
+    .filter((d) => (d.downspeed ?? 0) + (d.upspeed ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.downspeed ?? 0) +
+        (b.upspeed ?? 0) -
+        ((a.downspeed ?? 0) + (a.upspeed ?? 0))
+    );
+
+  const liveSegments = sortedByLiveRate.slice(0, 4).map((d, i) => ({
+    label: d.name ?? d.mac ?? d.id,
+    value: (d.downspeed ?? 0) + (d.upspeed ?? 0),
+    color: DONUT_COLORS[i % DONUT_COLORS.length]!,
+    key: d.id
+  }));
+
+  const otherLiveRate = sortedByLiveRate
+    .slice(4)
+    .reduce((sum, d) => sum + (d.downspeed ?? 0) + (d.upspeed ?? 0), 0);
+
+  if (otherLiveRate > 0) {
+    liveSegments.push({
+      label: 'Other',
+      value: otherLiveRate,
       color: '#6b7280',
       key: 'other'
     });
@@ -231,9 +276,6 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
       return trafficB - trafficA;
     })
     .slice(0, 6);
-
-  const wanDownspeed = status?.wanDownspeed ?? 0;
-  const wanUpspeed = status?.wanUpspeed ?? 0;
 
   return (
     <div className="unifi-dashboard">
@@ -400,53 +442,148 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
         <div className="unifi-col content-col">
           <div className="dashboard-cards-grid">
             {/* 1. Traffic Overview Card */}
-            <Card title={t('dashboard.traffic_overview')}>
-              <div className="traffic-overview-body">
-                <UniFiDonutChart
-                  segments={topTrafficSegments}
-                  totalLabel={t('dashboard.identified_traffic')}
-                  totalValue={formatBytes(totalIdentified)}
-                  size={150}
-                  strokeWidth={14}
-                />
-
-                <div className="traffic-breakdown-table">
-                  <div className="traffic-totals-chips">
-                    <span className="chip down">↓ {formatBytes(totalDownload)}</span>
-                    <span className="chip up">↑ {formatBytes(totalUpload)}</span>
+            <Card
+              title={
+                <div className="card-header-with-tabs">
+                  <span>{t('dashboard.traffic_overview')}</span>
+                  <div className="client-tabs">
+                    <button
+                      className={`tab-btn ${trafficTab === 'total' ? 'active' : ''}`}
+                      onClick={() => setTrafficTab('total')}
+                    >
+                      {t('dashboard.traffic_tab_total')}
+                    </button>
+                    <button
+                      className={`tab-btn ${trafficTab === 'live' ? 'active' : ''}`}
+                      onClick={() => setTrafficTab('live')}
+                    >
+                      {t('dashboard.traffic_tab_live')}
+                    </button>
                   </div>
-
-                  <table className="traffic-table">
-                    <thead>
-                      <tr>
-                        <th>Device</th>
-                        <th>{t('dashboard.down')}</th>
-                        <th>{t('dashboard.up')}</th>
-                        <th>{t('dashboard.traffic')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {sortedByTraffic.slice(0, 5).map((d) => (
-                        <tr
-                          key={d.id}
-                          className="clickable-device-row"
-                          onClick={() => setSelectedDevice(d)}
-                          title="Click to view device usage"
-                        >
-                          <td className="device-name-cell">
-                            <span className="device-bullet" />
-                            <span className="name">{d.name ?? d.mac ?? d.id}</span>
-                          </td>
-                          <td className="speed-cell">{formatBytes(d.downloadTotal ?? 0)}</td>
-                          <td className="speed-cell">{formatBytes(d.uploadTotal ?? 0)}</td>
-                          <td className="speed-cell highlight">
-                            {formatBytes((d.downloadTotal ?? 0) + (d.uploadTotal ?? 0))}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
+              }
+            >
+              <div className="traffic-overview-body">
+                {trafficTab === 'total' ? (
+                  <>
+                    <UniFiDonutChart
+                      segments={cumulativeSegments}
+                      totalLabel={
+                        totalIdentified > 0
+                          ? t('dashboard.identified_traffic')
+                          : t('dashboard.wan_traffic_total')
+                      }
+                      totalValue={formatBytes(displayTotalTraffic)}
+                      formatValue={formatBytes}
+                      size={150}
+                      strokeWidth={14}
+                    />
+
+                    <div className="traffic-breakdown-table">
+                      <div className="traffic-totals-chips">
+                        <span className="chip down">↓ {formatBytes(totalDownload)}</span>
+                        <span className="chip up">↑ {formatBytes(totalUpload)}</span>
+                      </div>
+
+                      <table className="traffic-table">
+                        <thead>
+                          <tr>
+                            <th>{t('devices.name')}</th>
+                            <th>{t('dashboard.down')}</th>
+                            <th>{t('dashboard.up')}</th>
+                            <th>{t('dashboard.traffic')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedByTraffic.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
+                                {t('dashboard.no_traffic_data')}
+                              </td>
+                            </tr>
+                          ) : (
+                            sortedByTraffic.slice(0, 5).map((d) => (
+                              <tr
+                                key={d.id}
+                                className="clickable-device-row"
+                                onClick={() => setSelectedDevice(d)}
+                                title="Click to view device usage"
+                              >
+                                <td className="device-name-cell">
+                                  <span className="device-bullet" />
+                                  <span className="name">{d.name ?? d.mac ?? d.id}</span>
+                                </td>
+                                <td className="speed-cell">{formatBytes(d.downloadTotal ?? 0)}</td>
+                                <td className="speed-cell">{formatBytes(d.uploadTotal ?? 0)}</td>
+                                <td className="speed-cell highlight">
+                                  {formatBytes((d.downloadTotal ?? 0) + (d.uploadTotal ?? 0))}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <UniFiDonutChart
+                      segments={liveSegments}
+                      totalLabel={t('dashboard.live_throughput')}
+                      totalValue={formatSpeed(liveThroughput)}
+                      formatValue={formatSpeed}
+                      size={150}
+                      strokeWidth={14}
+                    />
+
+                    <div className="traffic-breakdown-table">
+                      <div className="traffic-totals-chips">
+                        <span className="chip down">↓ {formatSpeed(wanDownspeed)}</span>
+                        <span className="chip up">↑ {formatSpeed(wanUpspeed)}</span>
+                      </div>
+
+                      <table className="traffic-table">
+                        <thead>
+                          <tr>
+                            <th>{t('devices.name')}</th>
+                            <th>{t('dashboard.traffic_down_rate')}</th>
+                            <th>{t('dashboard.traffic_up_rate')}</th>
+                            <th>{t('dashboard.traffic_total_rate')}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sortedByLiveRate.length === 0 ? (
+                            <tr>
+                              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
+                                {t('dashboard.no_traffic_data')}
+                              </td>
+                            </tr>
+                          ) : (
+                            sortedByLiveRate.slice(0, 5).map((d) => {
+                              const totalRate = (d.downspeed ?? 0) + (d.upspeed ?? 0);
+                              return (
+                                <tr
+                                  key={d.id}
+                                  className="clickable-device-row"
+                                  onClick={() => setSelectedDevice(d)}
+                                  title="Click to view device usage"
+                                >
+                                  <td className="device-name-cell">
+                                    <span className="device-bullet" />
+                                    <span className="name">{d.name ?? d.mac ?? d.id}</span>
+                                  </td>
+                                  <td className="speed-cell">{formatSpeed(d.downspeed ?? 0)}</td>
+                                  <td className="speed-cell">{formatSpeed(d.upspeed ?? 0)}</td>
+                                  <td className="speed-cell highlight">{formatSpeed(totalRate)}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
               </div>
             </Card>
 

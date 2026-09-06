@@ -13,6 +13,7 @@ export interface UniFiDonutChartProps {
   totalValue: string;
   size?: number;
   strokeWidth?: number;
+  formatValue?: (value: number) => string;
 }
 
 export function UniFiDonutChart({
@@ -20,7 +21,8 @@ export function UniFiDonutChart({
   totalLabel,
   totalValue,
   size = 150,
-  strokeWidth = 14
+  strokeWidth = 14,
+  formatValue
 }: UniFiDonutChartProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
@@ -97,7 +99,11 @@ export function UniFiDonutChart({
       {/* Centered label */}
       <div className="donut-center-text">
         <span className="donut-value">
-          {hoveredIndex !== null ? segments[hoveredIndex]?.value ?? totalValue : totalValue}
+          {hoveredIndex !== null && segments[hoveredIndex] !== undefined
+            ? formatValue
+              ? formatValue(segments[hoveredIndex]!.value)
+              : segments[hoveredIndex]!.value
+            : totalValue}
         </span>
         <span className="donut-label">
           {hoveredIndex !== null ? segments[hoveredIndex]?.label ?? totalLabel : totalLabel}

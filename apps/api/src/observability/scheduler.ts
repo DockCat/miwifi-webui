@@ -165,6 +165,36 @@ export class PollingScheduler {
         };
         this.latestStatus.set(router.id, payload);
         this.events.publish('router-status', { routerId: router.id, status: payload });
+
+        if (status.devices && status.devices.length > 0) {
+          const deviceMap = this.latestDevices.get(router.id) ?? new Map<string, NormalizedDevice>();
+          for (const sDev of status.devices) {
+            const key = deviceKey(sDev.mac, sDev.ip);
+            const existing =
+              (sDev.mac ? deviceMap.get(`mac:${sDev.mac}`) : undefined) ??
+              (sDev.ip ? deviceMap.get(`ip:${sDev.ip}`) : undefined) ??
+              (key ? deviceMap.get(key) : undefined);
+            const merged: NormalizedDevice = {
+              ...(existing ?? sDev),
+              mac: sDev.mac ?? existing?.mac,
+              name: sDev.name ?? existing?.name,
+              ip: sDev.ip ?? existing?.ip,
+              online: sDev.online || (existing?.online ?? true),
+              downspeed: sDev.downspeed || (existing?.downspeed ?? 0),
+              upspeed: sDev.upspeed || (existing?.upspeed ?? 0),
+              downloadTotal: sDev.downloadTotal || (existing?.downloadTotal ?? 0),
+              uploadTotal: sDev.uploadTotal || (existing?.uploadTotal ?? 0),
+              connectionType:
+                sDev.connectionType !== 'unknown'
+                  ? sDev.connectionType
+                  : (existing?.connectionType ?? 'unknown')
+            };
+            if (key) deviceMap.set(key, merged);
+            if (merged.mac) deviceMap.set(`mac:${merged.mac}`, merged);
+            if (merged.ip) deviceMap.set(`ip:${merged.ip}`, merged);
+          }
+          this.latestDevices.set(router.id, deviceMap);
+        }
       } catch {
         const payload = {
           capturedAt: new Date().toISOString(),
@@ -269,19 +299,32 @@ export class PollingScheduler {
           });
         }
 
+        const prevMap = this.latestDevices.get(router.id);
         const deviceMap = new Map<string, NormalizedDevice>();
+        const enrichedDevices: NormalizedDevice[] = [];
         for (const device of devices) {
-          const key = deviceKey(device.mac, device.ip);
-          if (key) deviceMap.set(key, device);
-          if (device.mac) deviceMap.set(`mac:${device.mac}`, device);
-          if (device.ip) deviceMap.set(`ip:${device.ip}`, device);
+          const prev =
+            (device.mac ? prevMap?.get(`mac:${device.mac}`) : undefined) ??
+            (device.ip ? prevMap?.get(`ip:${device.ip}`) : undefined);
+          const enriched: NormalizedDevice = {
+            ...device,
+            downloadTotal: device.downloadTotal || prev?.downloadTotal || 0,
+            uploadTotal: device.uploadTotal || prev?.uploadTotal || 0,
+            downspeed: device.downspeed || prev?.downspeed || 0,
+            upspeed: device.upspeed || prev?.upspeed || 0
+          };
+          enrichedDevices.push(enriched);
+          const key = deviceKey(enriched.mac, enriched.ip);
+          if (key) deviceMap.set(key, enriched);
+          if (enriched.mac) deviceMap.set(`mac:${enriched.mac}`, enriched);
+          if (enriched.ip) deviceMap.set(`ip:${enriched.ip}`, enriched);
         }
         this.latestDevices.set(router.id, deviceMap);
 
         this.events.publish('inventory', {
           routerId: router.id,
-          count: devices.filter((d) => d.online).length,
-          devices: devices.map((d) => ({
+          count: enrichedDevices.filter((d) => d.online).length,
+          devices: enrichedDevices.map((d) => ({
             mac: d.mac,
             name: d.name,
             ip: d.ip,

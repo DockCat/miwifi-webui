@@ -53,6 +53,30 @@ describe('normalizeDevice', () => {
     assert.equal(device?.name, 'phone');
   });
 
+  it('supports flat devname, download, upload, downspeed, upspeed fields', () => {
+    const device = normalizeDevice({
+      mac: '11:22:33:44:55:66',
+      devname: 'my-laptop',
+      ip: '192.168.31.200',
+      download: '123456789',
+      upload: '987654321',
+      downspeed: '5000',
+      upspeed: '2000',
+      online: 1
+    });
+    assert.deepEqual(device, {
+      mac: '11:22:33:44:55:66',
+      name: 'my-laptop',
+      ip: '192.168.31.200',
+      online: true,
+      downspeed: 5000,
+      upspeed: 2000,
+      downloadTotal: 123456789,
+      uploadTotal: 987654321,
+      connectionType: 'unknown'
+    });
+  });
+
   it('rejects entries with neither mac nor ip', () => {
     assert.equal(normalizeDevice({ name: 'ghost' }), null);
     assert.equal(normalizeDevice({ mac: '', ip: '' }), null);
@@ -70,6 +94,19 @@ describe('normalizeDeviceList', () => {
       ]
     });
     assert.equal(devices.length, 2);
+  });
+
+  it('extracts list from a payload with dev array (firmware variance)', () => {
+    const devices = normalizeDeviceList({
+      code: 0,
+      dev: [
+        { mac: 'AA:BB:CC:DD:EE:03', devname: 'Tablet', download: '500', upload: '200', online: 1 }
+      ]
+    });
+    assert.equal(devices.length, 1);
+    assert.equal(devices[0]!.name, 'Tablet');
+    assert.equal(devices[0]!.downloadTotal, 500);
+    assert.equal(devices[0]!.uploadTotal, 200);
   });
 
   it('tolerates malformed payloads without throwing', () => {
@@ -209,6 +246,30 @@ describe('normalizeRouterStatus', () => {
     assert.equal(status.wanDownspeed, 1335);
     assert.equal(status.wanUpspeed, 1052);
     assert.equal(status.wanUp, true, 'live WAN statistics imply link up');
+  });
+
+  it('extracts active devices from status dev array when present', () => {
+    const status = normalizeRouterStatus({
+      cpu: 10,
+      dev: [
+        {
+          mac: 'AA:11:22:33:44:55',
+          devname: 'Living Room TV',
+          download: '4000000',
+          upload: '1000000',
+          downspeed: '2500',
+          upspeed: '500'
+        }
+      ]
+    });
+    assert.ok(status.devices);
+    assert.equal(status.devices.length, 1);
+    assert.equal(status.devices[0]!.name, 'Living Room TV');
+    assert.equal(status.devices[0]!.downloadTotal, 4000000);
+    assert.equal(status.devices[0]!.uploadTotal, 1000000);
+    assert.equal(status.devices[0]!.downspeed, 2500);
+    assert.equal(status.devices[0]!.upspeed, 500);
+    assert.equal(status.devices[0]!.online, true);
   });
 
   it('returns undefined fields for garbage payloads', () => {

@@ -25,14 +25,22 @@ export interface NormalizedDevice {
 export interface RawDeviceEntry {
   readonly mac?: unknown;
   readonly name?: unknown;
+  readonly devname?: unknown;
   readonly oname?: unknown;
   readonly nickname?: unknown;
   readonly ip?: unknown;
   readonly ipaddress?: unknown;
   readonly online?: unknown;
+  readonly active?: unknown;
   readonly statistics?: unknown;
   readonly type?: unknown;
   readonly isap?: unknown;
+  readonly download?: unknown;
+  readonly upload?: unknown;
+  readonly downspeed?: unknown;
+  readonly upspeed?: unknown;
+  readonly downloadTotal?: unknown;
+  readonly uploadTotal?: unknown;
 }
 
 function asString(value: unknown): string | undefined {
@@ -86,14 +94,21 @@ function parseConnectionType(type: unknown): DeviceConnectionType {
 export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null {
   if (entry === null || typeof entry !== 'object') return null;
   const mac = asString(entry.mac)?.toUpperCase();
-  const name = asString(entry.name) ?? asString(entry.oname) ?? asString(entry.nickname);
+  const name =
+    asString(entry.name) ??
+    asString(entry.oname) ??
+    asString(entry.devname) ??
+    asString(entry.nickname);
   const ipInfo = extractIpAndSpeed(entry.ip);
   const ip = ipInfo.ip ?? asString(entry.ipaddress);
   const online =
     entry.online === true ||
     entry.online === 'true' ||
     entry.online === 1 ||
-    entry.online === '1';
+    entry.online === '1' ||
+    entry.active === 1 ||
+    entry.active === '1' ||
+    entry.active === true;
 
   if (mac === undefined && ip === undefined) return null;
 
@@ -102,10 +117,26 @@ export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null 
       ? (entry.statistics as Record<string, unknown>)
       : undefined;
 
-  const downspeed = asNumber(stats?.['downspeed']) ?? ipInfo.downspeed ?? 0;
-  const upspeed = asNumber(stats?.['upspeed']) ?? ipInfo.upspeed ?? 0;
-  const downloadTotal = asNumber(stats?.['download']) ?? 0;
-  const uploadTotal = asNumber(stats?.['upload']) ?? 0;
+  const downspeed =
+    asNumber(stats?.['downspeed']) ??
+    ipInfo.downspeed ??
+    asNumber(entry.downspeed) ??
+    0;
+  const upspeed =
+    asNumber(stats?.['upspeed']) ??
+    ipInfo.upspeed ??
+    asNumber(entry.upspeed) ??
+    0;
+  const downloadTotal =
+    asNumber(stats?.['download']) ??
+    asNumber(entry.download) ??
+    asNumber(entry.downloadTotal) ??
+    0;
+  const uploadTotal =
+    asNumber(stats?.['upload']) ??
+    asNumber(entry.upload) ??
+    asNumber(entry.uploadTotal) ??
+    0;
   const connectionType = parseConnectionType(entry.type);
 
   return {
@@ -125,6 +156,8 @@ export function normalizeDeviceList(payload: unknown): readonly NormalizedDevice
   if (payload === null || typeof payload !== 'object') return [];
   const list =
     (payload as { list?: unknown }).list ??
+    (payload as { dev?: unknown }).dev ??
+    (payload as { devices?: unknown }).devices ??
     (Array.isArray(payload) ? payload : undefined);
   if (!Array.isArray(list)) return [];
   const devices: NormalizedDevice[] = [];
@@ -171,6 +204,8 @@ export interface NormalizedRouterStatus {
   readonly upTimeSeconds: number | undefined;
   /** Hardware information, where reported. */
   readonly hardwareInfo: NormalizedHardwareInfo | undefined;
+  /** Active device observations reported by status payload, where present. */
+  readonly devices?: readonly NormalizedDevice[];
 }
 
 function parseMemoryMB(v: unknown): number | undefined {
@@ -359,6 +394,18 @@ export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus 
       }
     : undefined;
 
+  // Devices: if present in status payload (e.g. body['dev'] or body['devices'])
+  const devList = body['dev'] ?? body['devices'];
+  const statusDevices = Array.isArray(devList)
+    ? devList
+        .map((d) =>
+          d !== null && typeof d === 'object'
+            ? normalizeDevice({ online: true, ...(d as RawDeviceEntry) })
+            : null
+        )
+        .filter((d): d is NormalizedDevice => d !== null)
+    : undefined;
+
   return {
     cpuLoad,
     cpuCore,
@@ -380,6 +427,7 @@ export function normalizeRouterStatus(payload: unknown): NormalizedRouterStatus 
     wanDownloadTotal,
     wanUploadTotal,
     upTimeSeconds: num(body['upTime'] ?? body['uptime']),
-    hardwareInfo
+    hardwareInfo,
+    ...(statusDevices && statusDevices.length > 0 ? { devices: statusDevices } : {})
   };
 }

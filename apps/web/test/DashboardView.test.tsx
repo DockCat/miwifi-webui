@@ -68,6 +68,9 @@ describe('UniFi Dashboard components', () => {
     const markup = renderToStaticMarkup(createElement(DashboardView, { router: ROUTER }));
     assert.ok(markup.includes('AX6000'));
     assert.ok(markup.includes('Traffic Overview'));
+    assert.ok(markup.includes('Cumulative'));
+    assert.ok(markup.includes('Live Rate'));
+    assert.ok(markup.includes('No device traffic recorded yet'));
     assert.ok(markup.includes('Client Device Types'));
     assert.ok(markup.includes('WiFi Clients'));
     assert.ok(markup.includes('Down Utilization'));
@@ -76,7 +79,7 @@ describe('UniFi Dashboard components', () => {
     assert.ok(markup.includes('Temperature'));
   });
 
-  it('renders UniFiDonutChart with segments and center totals', () => {
+  it('renders UniFiDonutChart with segments, center totals, and formatValue support', () => {
     const markup = renderToStaticMarkup(
       createElement(UniFiDonutChart, {
         segments: [
@@ -84,7 +87,8 @@ describe('UniFi Dashboard components', () => {
           { label: 'iPhone', value: 50, color: '#10b981' }
         ],
         totalLabel: 'Identified Traffic',
-        totalValue: '150 GB'
+        totalValue: '150 GB',
+        formatValue: (val: number) => `${val} GB`
       })
     );
     assert.ok(markup.includes('donut-segment'));
