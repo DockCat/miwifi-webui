@@ -13,7 +13,7 @@ runner:
     - ubuntu-latest
 test:
   commands:
-    - npm test
+    - corepack enable && pnpm test
 phases:
   test:
     persona: qa-engineer
