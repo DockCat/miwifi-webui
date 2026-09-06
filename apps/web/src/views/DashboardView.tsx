@@ -31,6 +31,7 @@ interface StatusPayload {
   wanDownspeed?: number;
   wanUpspeed?: number;
   upTimeSeconds?: number;
+  temperature?: number;
 }
 
 const DONUT_COLORS = ['#2563eb', '#10b981', '#06b6d4', '#8b5cf6', '#f59e0b', '#ec4899'];
@@ -360,8 +361,18 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
               <div className="load-metric">
                 <span className="load-label">{t('dashboard.memory')}</span>
                 <span className="load-val">
-                  {status?.memUsed !== undefined && status?.memTotal !== undefined
-                    ? `${status.memUsed}/${status.memTotal} MB`
+                  {status?.memUsed !== undefined
+                    ? status?.memTotal !== undefined
+                      ? `${status.memUsed}/${status.memTotal} MB`
+                      : `${status.memUsed} MB`
+                    : '—'}
+                </span>
+              </div>
+              <div className="load-metric">
+                <span className="load-label">{t('dashboard.temperature')}</span>
+                <span className="load-val">
+                  {status?.temperature !== undefined && status.temperature > 0
+                    ? `${status.temperature}°C`
                     : '—'}
                 </span>
               </div>

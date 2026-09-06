@@ -52,5 +52,6 @@ export interface TimeseriesPoint {
   readonly deviceCount: number;
   readonly cpuLoad: number;
   readonly memUsed: number;
+  readonly temperature?: number;
 }
 

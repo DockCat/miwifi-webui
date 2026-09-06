@@ -30,22 +30,36 @@ async function main(): Promise<void> {
     return;
   }
 
-  const app = await buildApp({ pool });
-
   // Master key is required for router credential renewal; without it the
   // scheduler cannot run but the app still serves (auth health etc.).
+  const eventBridge = new EventBridge();
   let scheduler: PollingScheduler | null = null;
+  let masterKeyWarning = false;
   try {
     const masterKey = parseMasterKey(process.env.APP_MASTER_KEY);
     scheduler = new PollingScheduler(
       pool,
       new RouterRepository(pool),
       new ObservabilityRepository(pool),
-      new EventBridge(),
+      eventBridge,
       masterKey.toString('base64')
     );
     await scheduler.start();
   } catch {
+    masterKeyWarning = true;
+  }
+
+  const app = await buildApp({
+    pool,
+    scheduler: scheduler ?? undefined,
+    eventBridge,
+    // TRUST_PROXY=true when the API runs behind the compose web proxy (or
+    // another trusted reverse proxy), so request.protocol / request.ip use
+    // the forwarded headers instead of the proxy's own address.
+    trustProxy: config.trustProxy
+  });
+
+  if (masterKeyWarning) {
     app.log.warn('APP_MASTER_KEY not configured; router polling disabled');
   }
 

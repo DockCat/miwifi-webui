@@ -28,6 +28,16 @@ export async function verifyPassword(
   }
 }
 
+/**
+ * Well-formed Argon2id hash at the same parameters as ARGON2_OPTS, used to
+ * equalize login timing when the username is unknown: verification still
+ * runs (and fails) at full cost, so response time does not reveal account
+ * existence. The plaintext behind it was randomly generated and discarded —
+ * the value is not a secret; it only needs to parse and cost the same.
+ */
+export const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=19456,t=2,p=1$esoyzEGmVUzpIZHUEIvHxg$7zSxSjW1hRH3NR/kHS8j/i+EKKxShc4oL3LXMLDBFCA';
+
 /** v1 password policy: 10+ chars. Deliberately minimal, message-safe. */
 export function validatePasswordPolicy(password: string): string | null {
   if (typeof password !== 'string' || password.length < 10) {

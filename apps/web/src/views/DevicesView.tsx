@@ -7,6 +7,7 @@ import { api, type DeviceRow, type PresenceEvent, type RouterSummary } from '../
 import { Card, EmptyState, StatusBadge } from '../components.js';
 import { InternetAccessControl } from '../InternetAccessControl.js';
 import { useI18n } from '../i18n-context.js';
+import { useLiveEvents } from '../use-live-events.js';
 import { formatTime } from './DashboardView.js';
 import { formatSpeed } from '../components/charts/UniFiAreaChart.js';
 import { connectionTypeLabel, formatBytes } from '../components/DeviceUsageDrawer.js';
@@ -57,6 +58,72 @@ export function DevicesView({
       }
     })();
   }, [router, deviceId]);
+
+  // Live SSE listener for real-time inventory and presence updates
+  useLiveEvents(router !== null, (event) => {
+    if (event.type === 'inventory' && event.data['routerId'] === router?.id) {
+      const liveDevs = event.data['devices'] as DeviceRow[] | undefined;
+      if (Array.isArray(liveDevs)) {
+        setDevices((current) => {
+          if (!current) return current;
+          const map = new Map(liveDevs.map((d) => [d.mac ?? d.ip ?? d.id, d]));
+          return current.map((item) => {
+            const match = map.get(item.mac ?? item.ip ?? item.id);
+            if (match) {
+              return {
+                ...item,
+                online: match.online,
+                downspeed: match.downspeed,
+                upspeed: match.upspeed,
+                downloadTotal: match.downloadTotal,
+                uploadTotal: match.uploadTotal,
+                connectionType: match.connectionType
+              };
+            }
+            return {
+              ...item,
+              online: false,
+              downspeed: 0,
+              upspeed: 0
+            };
+          });
+        });
+      }
+    }
+
+    if (event.type === 'presence' && event.data['routerId'] === router?.id) {
+      const evtDeviceId = String(event.data['deviceId'] ?? '');
+      if (deviceId && evtDeviceId === deviceId) {
+        setPresence((current) => [
+          {
+            id: event.id,
+            deviceId: evtDeviceId,
+            routerId: String(event.data['routerId'] ?? ''),
+            kind: String(event.data['kind']) as PresenceEvent['kind'],
+            occurredAt: event.at
+          },
+          ...(current ?? [])
+        ]);
+      }
+      const kind = String(event.data['kind']);
+      if (kind === 'ONLINE' || kind === 'OFFLINE') {
+        setDevices((current) => {
+          if (!current) return current;
+          return current.map((item) => {
+            if (item.id === evtDeviceId) {
+              return {
+                ...item,
+                online: kind === 'ONLINE',
+                downspeed: kind === 'OFFLINE' ? 0 : item.downspeed,
+                upspeed: kind === 'OFFLINE' ? 0 : item.upspeed
+              };
+            }
+            return item;
+          });
+        });
+      }
+    }
+  });
 
   if (!router) {
     return (

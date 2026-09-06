@@ -13,6 +13,8 @@ export interface AppConfig {
   readonly port: number;
   readonly host: string;
   readonly databaseUrl: string;
+  /** Trust X-Forwarded-* headers (deployed behind the compose proxy). */
+  readonly trustProxy: boolean;
 }
 
 /**
@@ -65,6 +67,10 @@ function parsePort(value: string): number {
   return port;
 }
 
+function parseBool(value: string | undefined): boolean {
+  return value === 'true' || value === '1';
+}
+
 export interface LoadConfigOptions {
   /**
    * Load a `.env` file when explicit environment variables are missing.
@@ -81,10 +87,11 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const port = parsePort(optionalEnv('API_PORT', '3001'));
   const host = optionalEnv('API_HOST', '127.0.0.1');
   const databaseUrl = requireEnv('DATABASE_URL');
+  const trustProxy = parseBool(process.env.TRUST_PROXY);
 
   if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
     throw new Error('DATABASE_URL must be a postgres:// or postgresql:// connection string');
   }
 
-  return { port, host, databaseUrl };
+  return { port, host, databaseUrl, trustProxy };
 }

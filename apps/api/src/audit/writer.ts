@@ -8,7 +8,7 @@
  */
 import type pg from 'pg';
 
-export type AuditOutcome = 'success' | 'failure';
+export type AuditOutcome = 'success' | 'failure' | 'info';
 
 export interface AuditEventInput {
   action: string;

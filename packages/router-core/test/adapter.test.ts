@@ -184,6 +184,28 @@ describe('MiWifiAdapter session expiry and renewal', () => {
     const serialized = JSON.stringify(probe);
     assert.ok(!serialized.includes(CREDENTIALS.password), 'probe result must not contain password');
   });
+
+  it('falls back to xqsystemStatus when status returns 404', async () => {
+    const scenario = fullRouterScenario({
+      responses: {
+        status: { status: 404, body: { code: 1, msg: 'not found' } },
+        xqsystem_status: { status: 200, body: { code: 0, cpu: 15, mem: 50 } },
+        device_list: { status: 200, body: { code: 0, list: [] } },
+        wan_info: { status: 200, body: { code: 0, info: { link: 1 } } }
+      }
+    });
+    const { adapter } = adapterFor(scenario);
+    await adapter.login();
+
+    // Probe should detect health-metrics via fallback
+    const probe = await adapter.probe();
+    assert.ok(probe.capabilities.includes('health-metrics'));
+
+    // Call status should return xqsystemStatus response
+    const res = await adapter.call('status');
+    assert.equal(res.status, 200);
+    assert.equal((res.body as { cpu?: number }).cpu, 15);
+  });
 });
 
 describe('MiWifiAdapter malformed responses', () => {

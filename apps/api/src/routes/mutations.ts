@@ -86,13 +86,15 @@ export function registerMutationRoutes(
       return await reply.code(setup.code).send({ error: setup.error });
     }
 
+    // The attempt is recorded as informational; the definitive success /
+    // failure record follows once the router round-trip completes.
     await audit.record({
       action: `router.mutation_${action}_attempt`,
       actorId: request.authUser!.id,
       targetType: 'device',
       targetId: deviceId,
       routerId,
-      outcome: 'success',
+      outcome: 'info',
       requestId: request.id
     });
 

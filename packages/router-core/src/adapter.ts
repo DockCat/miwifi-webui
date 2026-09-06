@@ -290,9 +290,27 @@ export class MiWifiAdapter {
         const response = await this.raw(spec);
         if (response.status === 200 && this.isBodyUsable(response.body)) {
           capabilities.push(capability);
+        } else if (key === 'status') {
+          try {
+            const fallback = await this.raw(specFor('xqsystemStatus'));
+            if (fallback.status === 200 && this.isBodyUsable(fallback.body)) {
+              capabilities.push(capability);
+            }
+          } catch {
+            // fallback unavailable
+          }
         }
       } catch {
-        // endpoint unavailable — capability simply not recorded
+        if (key === 'status') {
+          try {
+            const fallback = await this.raw(specFor('xqsystemStatus'));
+            if (fallback.status === 200 && this.isBodyUsable(fallback.body)) {
+              capabilities.push(capability);
+            }
+          } catch {
+            // endpoint unavailable — capability simply not recorded
+          }
+        }
       }
     }
 
@@ -317,17 +335,58 @@ export class MiWifiAdapter {
 
   /** Execute an arbitrary catalog operation (session enforced). */
   async call(key: OperationKey, body?: Record<string, string>): Promise<RouterTransportResponse> {
-    const spec = specFor(key);
-    if (spec.requiresStok && !(await this.ensureSession())) {
-      throw new RouterTransportError({ kind: 'aborted' }, spec.id);
+    const invoke = async (k: OperationKey): Promise<RouterTransportResponse> => {
+      const spec = specFor(k);
+      if (spec.requiresStok && !(await this.ensureSession())) {
+        throw new RouterTransportError({ kind: 'aborted' }, spec.id);
+      }
+      let response: RouterTransportResponse;
+      try {
+        response = await this.raw(spec, body);
+      } catch (error) {
+        if (
+          error instanceof RouterTransportError &&
+          error.failure.kind === 'http-status' &&
+          (error.failure.status === 302 || error.failure.status === 401 || error.failure.status === 403)
+        ) {
+          this.invalidateSession();
+        }
+        throw error;
+      }
+      // MiWiFi signals session expiry via code 9 or redirect to login.
+      const asObj = response.body as { code?: number } | null;
+      if (typeof asObj === 'object' && asObj !== null && asObj.code === 9) {
+        this.invalidateSession();
+        throw new RouterTransportError({ kind: 'aborted' }, spec.id);
+      }
+      return response;
+    };
+
+    try {
+      const response = await invoke(key);
+      if (key === 'status' && (response.status === 404 || response.status === 501)) {
+        try {
+          const fallback = await invoke('xqsystemStatus');
+          if (fallback.status === 200) return fallback;
+        } catch {
+          // ignore fallback failure, return original response
+        }
+      }
+      return response;
+    } catch (error) {
+      if (
+        key === 'status' &&
+        error instanceof RouterTransportError &&
+        error.failure.kind === 'http-status' &&
+        (error.failure.status === 404 || error.failure.status === 501)
+      ) {
+        try {
+          return await invoke('xqsystemStatus');
+        } catch {
+          throw error;
+        }
+      }
+      throw error;
     }
-    const response = await this.raw(spec, body);
-    // MiWiFi signals session expiry via code 9 or redirect to login.
-    const asObj = response.body as { code?: number } | null;
-    if (typeof asObj === 'object' && asObj !== null && asObj.code === 9) {
-      this.invalidateSession();
-      throw new RouterTransportError({ kind: 'aborted' }, spec.id);
-    }
-    return response;
   }
 }

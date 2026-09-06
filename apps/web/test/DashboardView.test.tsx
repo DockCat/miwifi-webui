@@ -71,6 +71,9 @@ describe('UniFi Dashboard components', () => {
     assert.ok(markup.includes('Client Device Types'));
     assert.ok(markup.includes('WiFi Clients'));
     assert.ok(markup.includes('Down Utilization'));
+    assert.ok(markup.includes('CPU'));
+    assert.ok(markup.includes('Memory'));
+    assert.ok(markup.includes('Temperature'));
   });
 
   it('renders UniFiDonutChart with segments and center totals', () => {

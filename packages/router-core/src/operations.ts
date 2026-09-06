@@ -50,14 +50,23 @@ export const OPERATIONS = {
     requiresStok: false,
     probe: false
   },
-  /** Router status overview (health: cpu/mem/wan/device counts). */
+  /** Router status overview (health: cpu/mem/wan/device counts) — primary endpoint. */
   status: {
     id: 'status',
-    path: '/cgi-bin/luci/;stok={stok}/api/xqsystem/status',
+    path: '/cgi-bin/luci/;stok={stok}/api/misystem/status',
     method: 'GET',
     effect: 'READ',
     requiresStok: true,
     probe: true
+  },
+  /** Legacy router status fallback (xqsystem module). */
+  xqsystemStatus: {
+    id: 'xqsystem_status',
+    path: '/cgi-bin/luci/;stok={stok}/api/xqsystem/status',
+    method: 'GET',
+    effect: 'READ',
+    requiresStok: true,
+    probe: false
   },
   /** Device list (misystem module). */
   deviceList: {

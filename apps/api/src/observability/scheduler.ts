@@ -51,6 +51,8 @@ export class PollingScheduler {
   private latestStatus = new Map<string, Record<string, unknown>>();
   /** Most recent in-memory devices per router (keyed by mac, ip, and deviceKey). */
   private latestDevices = new Map<string, Map<string, NormalizedDevice>>();
+  /** Cached adapter instances per router to reuse authenticated sessions. */
+  private readonly adapters = new Map<string, MiWifiAdapter>();
 
   constructor(
     private readonly pool: pg.Pool,
@@ -97,6 +99,7 @@ export class PollingScheduler {
     this.running = false;
     for (const timer of this.timers) clearInterval(timer);
     this.timers = [];
+    this.adapters.clear();
   }
 
   /** Daily: run the full retention pass across all categories. */
@@ -118,22 +121,34 @@ export class PollingScheduler {
 
   private async activeRouters(): Promise<ActiveRouter[]> {
     const rows = await this.routerRepository.listRouters();
-    return rows
+    const active = rows
       .filter((row) => row.compatibility === 'SUPPORTED' || row.compatibility === 'PARTIAL')
       .map((row) => ({ id: row.id, host: row.host, adapter: null }));
+    const activeIds = new Set(active.map((r) => r.id));
+    for (const id of this.adapters.keys()) {
+      if (!activeIds.has(id)) {
+        this.adapters.delete(id);
+      }
+    }
+    return active;
   }
 
   private async adapterFor(router: ActiveRouter): Promise<MiWifiAdapter | null> {
-    if (router.adapter) return router.adapter;
+    const cached = this.adapters.get(router.id);
+    if (cached) return cached;
     const credential = await this.routerRepository.loadCredential(
       router.id,
       this.masterKey
     );
-    if (!credential) return null;
+    if (!credential) {
+      this.adapters.delete(router.id);
+      return null;
+    }
     const { HttpRouterTransport } = await import('@miwifi-webui/router-core');
     const transport = new HttpRouterTransport({ host: router.host });
-    router.adapter = new MiWifiAdapter(transport, credential);
-    return router.adapter;
+    const adapter = new MiWifiAdapter(transport, credential);
+    this.adapters.set(router.id, adapter);
+    return adapter;
   }
 
   /** ~15s: current router status (in-memory + SSE only). */
@@ -151,9 +166,14 @@ export class PollingScheduler {
         this.latestStatus.set(router.id, payload);
         this.events.publish('router-status', { routerId: router.id, status: payload });
       } catch {
+        const payload = {
+          capturedAt: new Date().toISOString(),
+          unreachable: true
+        };
+        this.latestStatus.set(router.id, payload);
         this.events.publish('router-status', {
           routerId: router.id,
-          status: { capturedAt: new Date().toISOString(), unreachable: true }
+          status: payload
         });
       }
     }
@@ -232,6 +252,15 @@ export class PollingScheduler {
             router.id,
             event.kind
           );
+          if (event.kind === 'OFFLINE') {
+            await this.observabilityRepository.updateDeviceObservation(existing.id, {
+              online: false
+            });
+          } else if (event.kind === 'ONLINE') {
+            await this.observabilityRepository.updateDeviceObservation(existing.id, {
+              online: true
+            });
+          }
           this.events.publish('presence', {
             routerId: router.id,
             deviceId: existing.id,

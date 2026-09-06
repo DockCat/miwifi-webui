@@ -11,7 +11,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { AuthRepository } from '../auth/repository.js';
 import type { AuditWriter } from '../audit/writer.js';
-import { hashPassword, validatePasswordPolicy, verifyPassword } from '../auth/passwords.js';
+import { hashPassword, validatePasswordPolicy, verifyPassword, DUMMY_PASSWORD_HASH } from '../auth/passwords.js';
 import { generateSessionToken } from '../auth/tokens.js';
 import {
   requireAuth,
@@ -103,8 +103,10 @@ export function registerAuthRoutes(
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const password = typeof body.password === 'string' ? body.password : '';
 
+    // Always run one Argon2id verification (unknown users verify against a
+    // dummy hash) so response timing cannot reveal account existence.
     const user = username ? await repository.findUserByUsername(username) : null;
-    const ok = user ? await verifyPassword(password, user.passwordHash) : false;
+    const ok = await verifyPassword(password, user?.passwordHash ?? DUMMY_PASSWORD_HASH);
 
     if (!user || !ok) {
       await audit.record({

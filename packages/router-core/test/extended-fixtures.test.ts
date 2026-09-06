@@ -102,6 +102,37 @@ describe('mid-session expiry', () => {
     const response = await adapter.call('status');
     assert.equal((response.body as { cpu?: number }).cpu, 10);
   });
+
+  it('invalidates session on http redirect (302) or 401 response', async () => {
+    let callCount = 0;
+    const transport: RouterTransport = {
+      request: async (req: RouterTransportRequest): Promise<RouterTransportResponse> => {
+        if (req.operation === 'init_info') {
+          return { status: 200, body: { code: 0, model: 'R3G', newEncryptMode: 0 } };
+        }
+        if (req.operation === 'login_page') {
+          return { status: 200, body: LOGIN_PAGE_HTML };
+        }
+        if (req.operation === 'login') {
+          return { status: 200, body: { code: 0, token: 'valid-token' } };
+        }
+        callCount++;
+        if (callCount === 1) {
+          throw new RouterTransportError({ kind: 'http-status', status: 302 }, req.operation);
+        }
+        return { status: 200, body: { code: 0, cpu: 15 } };
+      }
+    };
+    const adapter = new MiWifiAdapter(transport, CREDENTIALS);
+    await adapter.login();
+    assert.equal(adapter.hasSession, true);
+    await assert.rejects(
+      () => adapter.call('status'),
+      (error: unknown) =>
+        error instanceof RouterTransportError && error.failure.kind === 'http-status'
+    );
+    assert.equal(adapter.hasSession, false, 'session must be invalidated after 302 redirect');
+  });
 });
 
 describe('fixture scenario library', () => {

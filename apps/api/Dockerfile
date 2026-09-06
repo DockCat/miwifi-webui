@@ -1,5 +1,5 @@
 # Build stage
-FROM node:22-alpine AS builder
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ COPY packages/router-core/package.json ./packages/router-core/
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 
-# Install workspace dependencies
+# Install workspace dependencies (cached layer keyed on manifests)
 RUN pnpm install --frozen-lockfile
 
 # Copy source code
@@ -25,7 +25,7 @@ COPY apps/api ./apps/api
 RUN pnpm --filter @miwifi-webui/api build
 
 # Production runtime stage
-FROM node:22-alpine AS runner
+FROM node:22-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
@@ -43,8 +43,17 @@ RUN pnpm install --prod --frozen-lockfile
 # Copy bundled application & migrations from builder
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
+# Non-root runtime. The dist tree is copied as root; chown to the unprivileged
+# user so the app never needs root to read its own files.
+RUN chown -R node:node /app
+USER node
+
 WORKDIR /app/apps/api
 
 EXPOSE 3001
+
+# docker HEALTHCHECK against the unauthenticated liveness endpoint.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3001/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
 
 CMD ["node", "dist/main.js"]

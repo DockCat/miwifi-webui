@@ -171,7 +171,8 @@ export class ObservabilityRepository {
         COALESCE(AVG(NULLIF((payload->>'wanUpspeed')::numeric, NULL)), 0)::float AS upspeed,
         COALESCE(ROUND(AVG(NULLIF((payload->>'deviceCount')::numeric, NULL))), 0)::int AS "deviceCount",
         COALESCE(ROUND(AVG(NULLIF((payload->>'cpuLoad')::numeric, NULL))), 0)::int AS "cpuLoad",
-        COALESCE(ROUND(AVG(NULLIF((payload->>'memUsed')::numeric, NULL))), 0)::int AS "memUsed"
+        COALESCE(ROUND(AVG(NULLIF((payload->>'memUsed')::numeric, NULL))), 0)::int AS "memUsed",
+        ROUND(AVG(NULLIF((payload->>'temperature')::numeric, NULL)))::int AS "temperature"
       FROM telemetry_snapshot
       WHERE router_id = $1 AND captured_at >= now() - $3::interval
       GROUP BY 1
@@ -193,5 +194,6 @@ export interface TimeseriesBucketPoint {
   readonly deviceCount: number;
   readonly cpuLoad: number;
   readonly memUsed: number;
+  readonly temperature?: number | null;
 }
 

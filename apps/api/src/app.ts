@@ -30,14 +30,21 @@ export interface BuildAppOptions {
   /** Created by main.ts; absent in tests unless a test provides one. */
   readonly scheduler?: PollingScheduler;
   readonly eventBridge?: EventBridge;
+  /**
+   * Trust X-Forwarded-* headers (request.ip, protocol). Only set when the
+   * process is deployed behind a trusted reverse proxy (compose web service)
+   * — a directly reachable client must not be able to spoof its apparent
+   * protocol or address. Default false (standalone / direct access).
+   */
+  readonly trustProxy?: boolean;
 }
 
 export async function buildApp(
   options: BuildAppOptions | pg.Pool
 ): Promise<FastifyInstance> {
-  const { pool, scheduler, eventBridge } =
+  const { pool, scheduler, eventBridge, trustProxy } =
     ('query' in options && typeof options.query === 'function')
-      ? { pool: options, scheduler: undefined, eventBridge: undefined }
+      ? { pool: options, scheduler: undefined, eventBridge: undefined, trustProxy: undefined }
       : (options as BuildAppOptions);
 
   const app = Fastify({
@@ -46,7 +53,10 @@ export async function buildApp(
     logger: {
       level: process.env.LOG_LEVEL ?? 'info',
       base: { service: 'miwifi-webui-api' }
-    }
+    },
+    // Only honor X-Forwarded-* when explicitly configured for a trusted
+    // proxy deployment; spoofing the header must not work by default.
+    trustProxy: trustProxy ?? false
   });
 
   await app.register(cookie);
@@ -62,6 +72,20 @@ export async function buildApp(
     );
     const status = err.statusCode && err.statusCode >= 400 ? err.statusCode : 500;
     return reply.code(status).send({ error: 'internal' });
+  });
+
+  // Baseline security response headers on every API response. The browser
+  // UI is served separately (nginx); these cover direct API access.
+  app.addHook('onSend', async (_request, reply) => {
+    reply.header('x-content-type-options', 'nosniff');
+    reply.header('x-frame-options', 'DENY');
+    reply.header('referrer-policy', 'no-referrer');
+    // The API serves JSON only; default-src 'none' + frame-ancestors close
+    // embedding and plugin content entirely.
+    reply.header(
+      'content-security-policy',
+      "default-src 'none'; frame-ancestors 'none'"
+    );
   });
 
   const authRepository = new AuthRepository(pool);

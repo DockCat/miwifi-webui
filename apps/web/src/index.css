@@ -560,7 +560,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .system-load-summary {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
   font-size: 0.8rem;
 }

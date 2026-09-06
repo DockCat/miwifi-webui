@@ -79,13 +79,12 @@ export function registerAuth(app: FastifyInstance, options: AuthPluginOptions): 
 }
 
 export function sessionCookieOptions(request: FastifyRequest) {
-  const secure =
-    request.protocol === 'https' ||
-    (request.headers['x-forwarded-proto'] ?? '') === 'https';
+  // request.protocol already reflects X-Forwarded-Proto when (and only
+  // when) the app runs with trustProxy enabled behind the compose proxy.
   return {
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure,
+    secure: request.protocol === 'https',
     path: '/'
   };
 }

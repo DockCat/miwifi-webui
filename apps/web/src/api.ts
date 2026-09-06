@@ -38,6 +38,7 @@ export interface TimeseriesPoint {
   deviceCount: number;
   cpuLoad: number;
   memUsed: number;
+  temperature?: number;
 }
 
 export interface PresenceEvent {

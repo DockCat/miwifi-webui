@@ -91,14 +91,111 @@ describe('normalizeRouterStatus', () => {
     });
     assert.deepEqual(status, {
       cpuLoad: 23,
+      cpuCore: undefined,
+      cpuHz: undefined,
       memUsed: 45,
       memTotal: 128,
+      memUsage: 35.2,
+      memType: undefined,
+      memHz: undefined,
+      temperature: undefined,
       wanUp: true,
       deviceCount: 7,
+      deviceCountOnline: undefined,
+      deviceCountAll: undefined,
       wanDownspeed: undefined,
       wanUpspeed: undefined,
-      upTimeSeconds: undefined
+      wanMaxDownspeed: undefined,
+      wanMaxUpspeed: undefined,
+      wanDownloadTotal: undefined,
+      wanUploadTotal: undefined,
+      upTimeSeconds: undefined,
+      hardwareInfo: undefined
     });
+  });
+
+  it('parses full upstream RACErace/MiWiFi-API misystem/status payload', () => {
+    const upstream = {
+      cpu: {
+        core: 4,
+        hz: '1.0GHz',
+        load: 0.09
+      },
+      mem: {
+        type: 'DDR3',
+        usage: 0.43,
+        total: '256MB',
+        hz: '1200MHz'
+      },
+      temperature: 45,
+      count: {
+        all: 3,
+        online: 2,
+        all_without_mash: 3,
+        online_without_mash: 2
+      },
+      wan: {
+        downspeed: '1048576',
+        upspeed: '524288',
+        maxdownloadspeed: '10485760',
+        maxuploadspeed: '5242880',
+        upload: '77491757',
+        download: '469335436'
+      },
+      hardware: {
+        mac: 'AA:BB:CC:DD:EE:FF',
+        platform: 'R3D',
+        version: '2.26.11',
+        channel: 'release',
+        sn: '12345/6789',
+        DisplayRomVer: '2.26.11',
+        displayName: '小米路由器HD'
+      },
+      upTime: '151877',
+      code: 0
+    };
+
+    const status = normalizeRouterStatus(upstream);
+    assert.equal(status.cpuLoad, 9);
+    assert.equal(status.cpuCore, 4);
+    assert.equal(status.cpuHz, '1.0GHz');
+    assert.equal(status.memUsed, 110);
+    assert.equal(status.memTotal, 256);
+    assert.equal(status.memUsage, 43);
+    assert.equal(status.memType, 'DDR3');
+    assert.equal(status.memHz, '1200MHz');
+    assert.equal(status.temperature, 45);
+    assert.equal(status.deviceCount, 2);
+    assert.equal(status.deviceCountOnline, 2);
+    assert.equal(status.deviceCountAll, 3);
+    assert.equal(status.wanUp, true);
+    assert.equal(status.wanDownspeed, 1048576);
+    assert.equal(status.wanUpspeed, 524288);
+    assert.equal(status.wanMaxDownspeed, 10485760);
+    assert.equal(status.wanMaxUpspeed, 5242880);
+    assert.equal(status.wanDownloadTotal, 469335436);
+    assert.equal(status.wanUploadTotal, 77491757);
+    assert.equal(status.upTimeSeconds, 151877);
+    assert.deepEqual(status.hardwareInfo, {
+      mac: 'AA:BB:CC:DD:EE:FF',
+      platform: 'R3D',
+      version: '2.26.11',
+      channel: 'release',
+      sn: '12345/6789',
+      displayRomVer: '2.26.11',
+      displayName: '小米路由器HD'
+    });
+  });
+
+  it('supports temperature 0 or missing gracefully', () => {
+    const status1 = normalizeRouterStatus({ temperature: 0 });
+    assert.equal(status1.temperature, 0);
+
+    const status2 = normalizeRouterStatus({ temp: 38 });
+    assert.equal(status2.temperature, 38);
+
+    const status3 = normalizeRouterStatus({});
+    assert.equal(status3.temperature, undefined);
   });
 
   it('parses RD05-style wanStatistics + uptime payloads', () => {
