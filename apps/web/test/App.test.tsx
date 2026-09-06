@@ -9,7 +9,15 @@ import { describe, it } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { App } from '../src/App.js';
-import { translate, detectLocale, LOCALES } from '../src/i18n.js';
+import {
+  translate,
+  detectLocale,
+  initialLocale,
+  isLocale,
+  LOCALES,
+  LOCALE_LABELS,
+  storeLocale
+} from '../src/i18n.js';
 
 describe('App initial render', () => {
   it('renders the loading gate while probing session', () => {
@@ -49,5 +57,49 @@ describe('i18n', () => {
     // (node) so the default is en — assert the fallback contract.
     const detected = detectLocale();
     assert.ok(detected === 'en' || detected === 'zh-CN');
+  });
+});
+
+describe('language switching', () => {
+  // The web tests run under tsx/node; localStorage is unavailable there.
+  // Exercise the persistence contract through the defensive fallbacks:
+  // storage access must never throw, and a stored choice must round-trip
+  // when storage exists (simulated with a minimal global shim).
+  it('initialLocale falls back safely when storage is unavailable', () => {
+    const detected = initialLocale();
+    assert.ok(detected === 'en' || detected === 'zh-CN');
+  });
+
+  it('stores and restores an explicit choice when storage exists', () => {
+    const backing = new Map<string, string>();
+    const shim = {
+      getItem: (key: string) => backing.get(key) ?? null,
+      setItem: (key: string, value: string) => void backing.set(key, value)
+    };
+    const original = (globalThis as { localStorage?: unknown }).localStorage;
+    (globalThis as { localStorage?: unknown }).localStorage = shim;
+    try {
+      storeLocale('zh-CN');
+      assert.equal(initialLocale(), 'zh-CN', 'stored choice wins over browser locale');
+      storeLocale('en');
+      assert.equal(initialLocale(), 'en');
+    } finally {
+      (globalThis as { localStorage?: unknown }).localStorage = original;
+    }
+  });
+
+  it('exposes stable, self-describing labels for the switcher', () => {
+    assert.equal(LOCALE_LABELS['en'], 'English');
+    assert.equal(LOCALE_LABELS['zh-CN'], '简体中文');
+    for (const locale of LOCALES) {
+      assert.ok(LOCALE_LABELS[locale].length > 0);
+    }
+  });
+
+  it('isLocale accepts exactly the two locales', () => {
+    assert.ok(isLocale('en'));
+    assert.ok(isLocale('zh-CN'));
+    assert.ok(!isLocale('fr'));
+    assert.ok(!isLocale('zh-TW'));
   });
 });

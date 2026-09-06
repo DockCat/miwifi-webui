@@ -4,7 +4,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type RouterSummary, UnauthorizedError } from './api.js';
 import { I18nContext } from './i18n-context.js';
-import { detectLocale, translate, type Locale, type MessageKey } from './i18n.js';
+import {
+  initialLocale,
+  storeLocale,
+  translate,
+  type Locale,
+  type MessageKey
+} from './i18n.js';
+import { LanguageSwitcher } from './components/LanguageSwitcher.js';
 import { LoginPage } from './LoginPage.js';
 import { useRoute } from './router.js';
 import { DashboardView } from './views/DashboardView.js';
@@ -22,11 +29,21 @@ type AuthState =
 export function App() {
   const [auth, setAuth] = useState<AuthState>({ kind: 'checking' });
   const [routers, setRouters] = useState<RouterSummary[]>([]);
-  const [locale] = useState<Locale>(detectLocale());
+  const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [route, navigate] = useRoute();
   const [refreshTick, setRefreshTick] = useState(0);
 
   const t = useCallback((key: MessageKey) => translate(locale, key), [locale]);
+
+  const setLocale = useCallback((next: Locale): void => {
+    setLocaleState(next);
+    storeLocale(next);
+  }, []);
+
+  // Keep <html lang> in sync for accessibility and CJK font selection.
+  useEffect(() => {
+    document.documentElement.lang = locale === 'zh-CN' ? 'zh-CN' : 'en';
+  }, [locale]);
 
   const loadRouters = useCallback(async (): Promise<void> => {
     try {
@@ -62,7 +79,7 @@ export function App() {
 
   if (auth.kind === 'signed-out') {
     return (
-      <I18nContext.Provider value={{ locale, t }}>
+      <I18nContext.Provider value={{ locale, t, setLocale }}>
         <LoginPage
           onAuthenticated={async () => {
             const session = await api.session();
@@ -83,7 +100,7 @@ export function App() {
   };
 
   return (
-    <I18nContext.Provider value={{ locale, t }}>
+    <I18nContext.Provider value={{ locale, t, setLocale }}>
       <div className="shell">
         <nav className="sidebar">
           <div className="brand">
@@ -124,6 +141,7 @@ export function App() {
           </ul>
           <div className="sidebar-footer">
             <span className="muted">{auth.username}</span>
+            <LanguageSwitcher />
             <button className="link-button" onClick={() => void handleLogout()}>
               {t('settings.logout')}
             </button>

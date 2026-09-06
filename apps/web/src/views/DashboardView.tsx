@@ -19,6 +19,7 @@ import { UniFiDonutChart } from '../components/charts/UniFiDonutChart.js';
 import { UniFiAreaChart, formatSpeed } from '../components/charts/UniFiAreaChart.js';
 import { UniFiUtilizationGauge, WiFiBandBars } from '../components/charts/UniFiBarGauge.js';
 import { DeviceUsageDrawer, formatBytes } from '../components/DeviceUsageDrawer.js';
+import { ConnectionIcon } from '../components/ConnectionIcon.js';
 
 interface StatusPayload {
   capturedAt?: string;
@@ -722,7 +723,7 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
                         title="Click to view detailed usage"
                       >
                         <div className="client-avatar">
-                          {client.connectionType === 'wired' ? '🖧' : '📶'}
+                          <ConnectionIcon connectionType={client.connectionType} size={22} />
                         </div>
                         <div className="client-info">
                           <span className="client-name">

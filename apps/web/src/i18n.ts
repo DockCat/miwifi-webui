@@ -7,6 +7,14 @@ export type Locale = 'en' | 'zh-CN';
 
 export const LOCALES: readonly Locale[] = ['en', 'zh-CN'];
 
+/** Human labels for the language switcher, shown in the language itself. */
+export const LOCALE_LABELS: Readonly<Record<Locale, string>> = {
+  en: 'English',
+  'zh-CN': '简体中文'
+};
+
+const LOCALE_STORAGE_KEY = 'miwifi-webui.locale';
+
 export function detectLocale(): Locale {
   if (typeof navigator === 'undefined') return 'en';
   const languages = navigator.languages ?? [navigator.language];
@@ -14,6 +22,34 @@ export function detectLocale(): Locale {
     if (lang?.toLowerCase().startsWith('zh')) return 'zh-CN';
   }
   return 'en';
+}
+
+/**
+ * Stored explicit choice wins; otherwise follow the browser locale.
+ * Wrap storage access defensively — private-mode browsers throw on access.
+ */
+export function initialLocale(): Locale {
+  try {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (stored === 'en' || stored === 'zh-CN') return stored;
+  } catch {
+    // Storage unavailable (private mode / blocked site data): fall through.
+  }
+  return detectLocale();
+}
+
+/** Persist an explicit language choice for future visits. */
+export function storeLocale(locale: Locale): void {
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // Best-effort persistence; the switch still applies for this session.
+  }
+}
+
+/** Locales the switcher cycles/hides — all supported values. */
+export function isLocale(value: string): value is Locale {
+  return value === 'en' || value === 'zh-CN';
 }
 
 const messages = {

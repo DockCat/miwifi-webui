@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type DeviceRow, type PresenceEvent } from '../api.js';
 import { StatusBadge } from '../components.js';
+import { ConnectionIcon } from './ConnectionIcon.js';
 import { InternetAccessControl } from '../InternetAccessControl.js';
 import { useI18n } from '../i18n-context.js';
 import { formatSpeed } from './charts/UniFiAreaChart.js';
@@ -72,7 +73,7 @@ export function DeviceUsageDrawer({
         <div className="drawer-header">
           <div className="drawer-title-group">
             <div className="device-avatar-big">
-              {device.connectionType === 'wired' ? '🖧' : '📶'}
+              <ConnectionIcon connectionType={device.connectionType} size={22} />
             </div>
             <div>
               <h2 className="drawer-device-name">

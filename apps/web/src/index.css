@@ -78,7 +78,37 @@ body {
 .nav-item:hover { background: rgba(255, 255, 255, 0.06); }
 .nav-item.is-active { background: var(--accent); color: #fff; }
 
-.sidebar-footer { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; }
+.sidebar-footer { padding: 0.75rem; display: flex; flex-direction: column; gap: 0.25rem; align-items: stretch; }
+
+/* Language switcher: small select matching each surface it lives on. */
+.language-select {
+  font: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.language-select-sidebar {
+  background: transparent;
+  color: var(--sidebar-fg);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+}
+.language-select-sidebar option { color: #1a1d21; background: #fff; }
+.language-select-login {
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  width: auto;
+}
+.login-language {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
 
 .content { flex: 1; padding: 1.5rem 2rem; max-width: 1200px; overflow-x: auto; }
 
@@ -224,6 +254,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* --- Login --- */
 .login-page {
+  position: relative; /* anchors the language switcher */
   min-height: 100vh;
   display: grid;
   place-items: center;
@@ -247,7 +278,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   .shell { flex-direction: column; }
   .sidebar { width: 100%; flex: none; flex-direction: row; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; }
   .sidebar ul { display: flex; gap: 0.25rem; }
-  .brand-sub, .sidebar-footer { display: none; }
+  .brand-sub, .sidebar-footer .muted { display: none; }
+  /* Keep the language switcher and sign-out reachable on mobile. */
+  .sidebar-footer { display: flex; flex-direction: row; align-items: center; gap: 0.5rem; padding: 0; margin-left: auto; }
+  .language-select-sidebar { width: auto; padding: 0.25rem 0.4rem; font-size: 0.8rem; }
   .content { padding: 1rem; }
 }
 
@@ -810,8 +844,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .client-avatar {
-  font-size: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
   margin-bottom: 0.4rem;
+  color: var(--accent);
 }
 
 .client-info {
@@ -964,13 +1002,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 }
 
 .device-avatar-big {
-  font-size: 1.8rem;
   width: 44px;
   height: 44px;
   border-radius: 10px;
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   display: grid;
   place-items: center;
+  color: var(--accent);
 }
 
 .drawer-device-name {

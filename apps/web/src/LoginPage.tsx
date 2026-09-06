@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, UnauthorizedError } from './api.js';
 import { useI18n } from './i18n-context.js';
+import { LanguageSwitcher } from './components/LanguageSwitcher.js';
 
 type Mode = 'checking' | 'bootstrap' | 'login';
 
@@ -84,6 +85,9 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
 
   return (
     <div className="login-page">
+      <div className="login-language">
+        <LanguageSwitcher variant="login" />
+      </div>
       <form className="login-card" onSubmit={(event) => void submit(event)}>
         <h1>{mode === 'bootstrap' ? t('login.bootstrap_title') : t('login.title')}</h1>
         <p className="login-app-name">{t('app.title')}</p>
