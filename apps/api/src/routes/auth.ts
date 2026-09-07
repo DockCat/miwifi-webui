@@ -2,8 +2,18 @@
  * Auth routes: bootstrap, login, logout, session info, password change.
  *
  * Security notes:
- * - Bootstrap: only when the user table is empty AND request is loopback;
- *   permanently closed (409) once an administrator exists (ADR 0003).
+ * - Bootstrap: only when the user table is empty AND the request originates
+ *   from a loopback peer socket; permanently closed (409) once an
+ *   administrator exists (ADR 0003). The loopback decision deliberately uses
+ *   the socket address, never request.ip: request.ip can be header-derived
+ *   (X-Forwarded-For) when TRUST_PROXY is enabled, and a spoofable header
+ *   must never satisfy a localhost-only restriction. Proxied requests are
+ *   therefore always rejected — compose owners bootstrap via the CLI
+ *   (admin:create) or docker exec.
+ * - The loopback check runs BEFORE the user-count check so every
+ *   non-loopback client receives the same 403 regardless of first-run
+ *   state; the response must not disclose whether the bootstrap window is
+ *   open to a remote prober.
  * - Login failures are generic (no username-existence signal in responses);
  *   detail goes to audit only.
  * - Passwords never appear in responses, logs, or audit metadata.
@@ -25,9 +35,15 @@ export interface AuthRoutesOptions {
   audit: AuditWriter;
 }
 
-function isLoopback(request: FastifyRequest): boolean {
-  const ip = request.ip;
-  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+/**
+ * Loopback gate for bootstrap: the peer socket address only.
+ * request.ip is intentionally NOT consulted — with TRUST_PROXY enabled it
+ * resolves from X-Forwarded-For, whose leftmost entry is client-controlled
+ * (a single spoofed header must not defeat a localhost-only restriction).
+ */
+function isLoopbackSocket(request: FastifyRequest): boolean {
+  const addr = request.socket.remoteAddress ?? '';
+  return addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
 }
 
 interface CredentialsBody {
@@ -64,12 +80,14 @@ export function registerAuthRoutes(
 
   // --- Bootstrap: create the first (and only) bootstrap administrator. ---
   app.post('/api/auth/bootstrap', async (request, reply) => {
+    // Loopback first: remote clients must not learn whether the first-run
+    // window is open (uniform 403 for both fresh and bootstrapped states).
+    if (!isLoopbackSocket(request)) {
+      return await reply.code(403).send({ error: 'bootstrap_local_only' });
+    }
     const count = await repository.userCount();
     if (count > 0) {
       return await reply.code(409).send({ error: 'bootstrap_already_completed' });
-    }
-    if (!isLoopback(request)) {
-      return await reply.code(403).send({ error: 'bootstrap_local_only' });
     }
 
     const body = readCredentials(request);

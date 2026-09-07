@@ -110,7 +110,7 @@ body {
   right: 1rem;
 }
 
-.content { flex: 1; padding: 1.5rem 2rem; max-width: 1200px; overflow-x: auto; }
+.content { flex: 1; padding: 1.5rem 2rem; width: 100%; max-width: 100%; box-sizing: border-box; overflow-x: auto; }
 
 .view-grid {
   display: grid;
@@ -229,6 +229,106 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .hint { font-size: 0.8rem; color: var(--muted); }
 .app-loading { padding: 3rem; text-align: center; color: var(--muted); }
 
+/* --- Chat (investigations) --- */
+.chat-view {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 3rem); /* content padding below the shell */
+  min-height: 24rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.chat-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.chat-turn { display: flex; flex-direction: column; max-width: 85%; }
+.chat-turn.user { align-self: flex-end; align-items: flex-end; }
+.chat-turn.assistant { align-self: flex-start; align-items: flex-start; }
+
+.chat-bubble {
+  padding: 0.55rem 0.85rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.chat-bubble.user {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble.assistant {
+  background: color-mix(in srgb, var(--border) 45%, var(--card));
+  color: var(--fg);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-text { margin: 0; white-space: pre-wrap; }
+.chat-failed { color: var(--down); }
+
+.chat-time {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 0.15rem;
+}
+
+/* Typing indicator while an investigation runs */
+.chat-typing { display: inline-flex; gap: 4px; padding: 0.35rem 0.1rem; }
+.chat-typing i {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--muted);
+  animation: chat-bounce 1.2s infinite ease-in-out;
+}
+.chat-typing i:nth-child(2) { animation-delay: 0.15s; }
+.chat-typing i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+/* Collapsible finding extras */
+.chat-collapsible { margin-top: 0.5rem; font-size: 0.85rem; }
+.chat-collapsible summary {
+  cursor: pointer;
+  color: var(--accent);
+  user-select: none;
+}
+.chat-collapsible .data-table { margin-top: 0.4rem; font-size: 0.8rem; }
+.chat-collapsible .data-table th,
+.chat-collapsible .data-table td { padding: 0.3rem 0.5rem; }
+
+.chat-evidence { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.25rem; }
+
+/* Composer pinned to the bottom of the pane */
+.chat-composer {
+  border-top: 1px solid var(--border);
+  padding: 0.75rem 1rem;
+  background: var(--card);
+}
+.chat-composer-row { display: flex; gap: 0.6rem; }
+.chat-input { flex: 1; }
+.chat-send {
+  padding: 0.5rem 1.1rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 /* --- Access control (mutation confirmation) --- */
 .access-control { display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .confirm-inline {
@@ -293,7 +393,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
-  max-width: 1400px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
 }
 
@@ -390,7 +491,306 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
 }
 
-/* Layout Grid */
+/* Layout Grid & Customizable Dashboard System (RGL / Gridster Native Transform Engine) */
+.dashboard-grid {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 980px) {
+  .dashboard-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    height: auto !important;
+  }
+  .dashboard-grid .dashboard-block {
+    position: relative !important;
+    transform: none !important;
+    width: 100% !important;
+    height: auto !important;
+    margin-bottom: 1.25rem;
+  }
+  .dashboard-ghost-placeholder {
+    display: none !important;
+  }
+}
+
+.dashboard-block {
+  position: absolute;
+  left: 0;
+  top: 0;
+  margin: 0;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  box-sizing: border-box;
+  will-change: transform, width, height;
+  transition: transform 200ms cubic-bezier(0.2, 0, 0, 1), width 200ms cubic-bezier(0.2, 0, 0, 1), height 200ms cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s ease;
+}
+
+.dashboard-block.is-dragging {
+  transition: none !important;
+  z-index: 100 !important;
+  opacity: 0.95;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35), 0 0 0 2px var(--accent);
+  cursor: grabbing !important;
+}
+
+.dashboard-block.is-resizing {
+  transition: none !important;
+  z-index: 100 !important;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--accent);
+}
+
+.dashboard-card-inner {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 1.15rem;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 0;
+}
+
+.dashboard-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.block-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.block-header-action {
+  display: flex;
+  align-items: center;
+}
+
+.dashboard-block-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Edit mode handles & outlines */
+.dashboard-grid.is-editing .dashboard-block {
+  outline: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: -1px;
+}
+
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+  transition: all 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.drag-handle:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.drag-handle:active,
+.drag-handle.is-active {
+  cursor: grabbing;
+}
+
+/* Multi-handle resizing */
+.resize-handle {
+  position: absolute;
+  touch-action: none;
+  user-select: none;
+  z-index: 10;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.resize-handle-se {
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: nwse-resize;
+  color: var(--muted);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.resize-handle-se:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  transform: scale(1.1);
+}
+
+.resize-handle-e {
+  right: 0;
+  top: 15%;
+  width: 8px;
+  height: 70%;
+  cursor: ew-resize;
+  border-radius: 4px;
+}
+
+.resize-handle-e:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.resize-handle-s {
+  left: 15%;
+  bottom: 0;
+  width: 70%;
+  height: 8px;
+  cursor: ns-resize;
+  border-radius: 4px;
+}
+
+.resize-handle-s:hover {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.dashboard-ghost-placeholder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  pointer-events: none;
+  z-index: 5;
+  box-sizing: border-box;
+  will-change: transform, width, height;
+  transition: transform 150ms cubic-bezier(0.2, 0, 0, 1), width 150ms cubic-bezier(0.2, 0, 0, 1), height 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.layout-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Adaptive Content Queries */
+/* 1. Gateway Card Dual-Column Reflow when wide */
+.gateway-adaptive-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  height: 100%;
+  justify-content: space-around;
+}
+
+@container (min-width: 520px) {
+  .gateway-adaptive-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    align-items: center;
+  }
+}
+
+/* 2. Traffic Overview & Clients Overview Adaptive Stacking */
+@container (max-width: 480px) {
+  .traffic-overview-body,
+  .clients-overview-body {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .traffic-breakdown-table,
+  .client-types-breakdown {
+    width: 100%;
+  }
+}
+
+/* Ultra compact table hiding secondary columns */
+@container (max-width: 360px) {
+  .traffic-table th.hide-on-compact,
+  .traffic-table td.hide-on-compact {
+    display: none;
+  }
+}
+
+/* 3. Area Chart fills full card height */
+.dashboard-block[data-block-id="throughput_history"] .dashboard-block-content {
+  height: 100%;
+  min-height: 160px;
+}
+
+.dashboard-block[data-block-id="throughput_history"] .unifi-area-chart-wrap {
+  flex: 1;
+  height: 100%;
+  min-height: 160px;
+}
+
+.dashboard-block[data-block-id="throughput_history"] .unifi-area-chart-svg {
+  height: 100%;
+}
+
+/* 4. WiFi band bars adaptive track height */
+.dashboard-block[data-block-id="wifi_clients"] .wifi-bands-container {
+  flex: 1;
+  height: 100%;
+  align-items: center;
+}
+
+.dashboard-block[data-block-id="wifi_clients"] .band-bar-track {
+  height: 100%;
+  min-height: 60px;
+  max-height: 140px;
+}
+
+/* 5. Active clients grid fills block height */
+.dashboard-block[data-block-id="most_active_clients"] .active-clients-carousel {
+  height: 100%;
+  overflow-y: auto;
+  align-content: start;
+}
+
+/* Custom Sleek Scrollbar for blocks */
+.dashboard-block ::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.dashboard-block ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dashboard-block ::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 999px;
+}
+
+.dashboard-block ::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Backward compatibility for unifi-main-grid */
 .unifi-main-grid {
   display: grid;
   grid-template-columns: 310px minmax(0, 1fr);
@@ -482,6 +882,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border-color: #006fff;
   box-shadow: 0 0 5px #006fff;
   background: #006fff33;
+}
+
+.port.lan.active {
+  border-color: #10b981;
+  box-shadow: 0 0 5px #10b981;
+  background: #10b98133;
 }
 
 .rack-leds {

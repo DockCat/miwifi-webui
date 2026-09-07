@@ -31,12 +31,14 @@ export interface BuildAppOptions {
   readonly scheduler?: PollingScheduler;
   readonly eventBridge?: EventBridge;
   /**
-   * Trust X-Forwarded-* headers (request.ip, protocol). Only set when the
-   * process is deployed behind a trusted reverse proxy (compose web service)
-   * — a directly reachable client must not be able to spoof its apparent
-   * protocol or address. Default false (standalone / direct access).
+   * Trust X-Forwarded-* headers (request.ip, protocol). Boolean `true`
+   * trusts every forwarded claim — only safe when no untrusted client can
+   * reach the port. A comma-separated proxy IP/CIDR string (e.g.
+   * "192.168.155.0/24") trusts only those peers as proxies, so request.ip
+   * resolves to the first hop beyond them and client-supplied entries are
+   * ignored. Default false (standalone / direct access).
    */
-  readonly trustProxy?: boolean;
+  readonly trustProxy?: boolean | string;
 }
 
 export async function buildApp(

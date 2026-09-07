@@ -183,12 +183,44 @@ async function chatCompletion(
       ...(config.apiKey ? { authorization: `Bearer ${config.apiKey}` } : {})
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(60_000)
+    // One agent loop iteration may chain several long tool calls; local
+    // models on modest hardware easily exceed a minute per completion.
+    signal: AbortSignal.timeout(300_000)
   });
   if (!response.ok) {
-    throw new Error(`provider HTTP ${response.status}`);
+    const detail = await extractProviderErrorMessage(response);
+    const suffix = detail ? `: ${detail.slice(0, 200)}` : '';
+    throw new Error(`provider HTTP ${response.status}${suffix}`);
   }
   return (await response.json()) as { choices?: Array<{ message?: ChatMessage }> };
+}
+
+export async function extractProviderErrorMessage(response: Response): Promise<string> {
+  try {
+    const text = (await response.text()).trim();
+    if (!text) return '';
+    try {
+      const errBody = JSON.parse(text) as {
+        error?: { message?: string } | string;
+        message?: string;
+      };
+      if (typeof errBody?.error === 'object' && errBody.error?.message) {
+        return errBody.error.message;
+      }
+      if (typeof errBody?.error === 'string') {
+        return errBody.error;
+      }
+      if (typeof errBody?.message === 'string') {
+        return errBody.message;
+      }
+    } catch {
+      // Not JSON, return sanitized plain text
+      return text.slice(0, 150).replace(/[\r\n\t]+/g, ' ');
+    }
+    return text.slice(0, 150).replace(/[\r\n\t]+/g, ' ');
+  } catch {
+    return '';
+  }
 }
 
 /** JSON schema per tool for the function-calling protocol. */

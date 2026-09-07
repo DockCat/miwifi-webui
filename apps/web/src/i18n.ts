@@ -113,6 +113,10 @@ const messages = {
     'dashboard.down': 'Down',
     'dashboard.up': 'Up',
     'dashboard.traffic': 'Traffic',
+    'dashboard.customize_layout': 'Customize Layout',
+    'dashboard.done_editing': 'Done',
+    'dashboard.reset_layout': 'Reset Layout',
+    'dashboard.layout_saved': 'Layout saved',
     'devices.downspeed': 'Down speed',
     'devices.upspeed': 'Up speed',
     'devices.download_total': 'Total Download',
@@ -165,6 +169,7 @@ const messages = {
   'investigations.alias': 'Alias',
   'investigations.original': 'Actual value',
     'investigations.disabled_hint': 'AI is disabled. Configure a provider (see .env.example).',
+    'investigations.finding_failed': 'The investigation failed. Check provider availability and try again.',
     'investigations.placeholder': 'Why did the TV lose connectivity at 14:32?'
   },
   'zh-CN': {
@@ -226,6 +231,10 @@ const messages = {
     'dashboard.down': '下載',
     'dashboard.up': '上傳',
     'dashboard.traffic': '總用量',
+    'dashboard.customize_layout': '自訂版面',
+    'dashboard.done_editing': '完成',
+    'dashboard.reset_layout': '恢復預設佈局',
+    'dashboard.layout_saved': '版面已儲存',
     'devices.downspeed': '即時下載速率',
     'devices.upspeed': '即時上傳速率',
     'devices.download_total': '累計下載量',
@@ -278,6 +287,7 @@ const messages = {
   'investigations.alias': '别名',
   'investigations.original': '实际值',
     'investigations.disabled_hint': 'AI 未启用。请先配置 provider（见 .env.example）。',
+    'investigations.finding_failed': '调查失败。请检查 provider 是否可用后重试。',
     'investigations.placeholder': '为什么电视在 14:32 失去连接？'
   }
 } as const;

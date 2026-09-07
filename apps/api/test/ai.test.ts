@@ -24,7 +24,7 @@ import {
   routerStatusTool,
   type ToolContext
 } from '../src/ai/tools.js';
-import { DISABLED_PROVIDER, loadProviderConfig, runInvestigation } from '../src/ai/provider.js';
+import { DISABLED_PROVIDER, loadProviderConfig, runInvestigation, extractProviderErrorMessage } from '../src/ai/provider.js';
 import process from 'node:process';
 
 describe('provider default state', () => {
@@ -386,5 +386,45 @@ describe('alias legend in investigation results', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe('extractProviderErrorMessage', () => {
+  it('extracts error.message from OpenAI-style JSON', async () => {
+    const response = new Response(
+      JSON.stringify({
+        error: {
+          message: 'credit insufficient balance: balance=0 required=708',
+          code: 'insufficient_user_quota'
+        }
+      }),
+      { status: 400, headers: { 'content-type': 'application/json' } }
+    );
+    const msg = await extractProviderErrorMessage(response);
+    assert.equal(msg, 'credit insufficient balance: balance=0 required=708');
+  });
+
+  it('extracts top-level message string from JSON', async () => {
+    const response = new Response(
+      JSON.stringify({ message: 'Rate limit exceeded' }),
+      { status: 429, headers: { 'content-type': 'application/json' } }
+    );
+    const msg = await extractProviderErrorMessage(response);
+    assert.equal(msg, 'Rate limit exceeded');
+  });
+
+  it('extracts plain text response fallback', async () => {
+    const response = new Response('503 Service Temporarily Unavailable\nretry later', {
+      status: 503,
+      headers: { 'content-type': 'text/plain' }
+    });
+    const msg = await extractProviderErrorMessage(response);
+    assert.equal(msg, '503 Service Temporarily Unavailable retry later');
+  });
+
+  it('returns empty string on empty body', async () => {
+    const response = new Response('', { status: 500 });
+    const msg = await extractProviderErrorMessage(response);
+    assert.equal(msg, '');
   });
 });

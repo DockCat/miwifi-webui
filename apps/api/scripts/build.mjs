@@ -15,7 +15,7 @@ const distDir = path.join(rootDir, 'dist');
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
 
-const result = await build({
+const mainResult = await build({
   entryPoints: [path.join(rootDir, 'src/main.ts')],
   bundle: true,
   platform: 'node',
@@ -33,12 +33,30 @@ const result = await build({
   logLevel: 'info'
 });
 
+const adminResult = await build({
+  entryPoints: [path.join(rootDir, 'src/cli/admin.ts')],
+  bundle: true,
+  platform: 'node',
+  target: 'node22',
+  format: 'esm',
+  outfile: path.join(distDir, 'cli/admin.js'),
+  external: [
+    '@fastify/cookie',
+    '@node-rs/argon2',
+    'fastify',
+    'pg',
+    'pg-native'
+  ],
+  sourcemap: true,
+  logLevel: 'info'
+});
+
 await cp(
   path.join(rootDir, 'src/db/migrations'),
   path.join(distDir, 'migrations'),
   { recursive: true }
 );
 
-if (result.errors.length > 0) {
+if (mainResult.errors.length > 0 || adminResult.errors.length > 0) {
   process.exit(1);
 }

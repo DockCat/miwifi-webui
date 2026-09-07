@@ -35,18 +35,19 @@ export function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) 
         }
         // Determine bootstrap availability: a deliberately-empty bootstrap
         // probe returning 400 (invalid input) means bootstrap is OPEN (no
-        // admin yet); 409 means completed.
+        // admin yet and socket is loopback); 409 means completed; 403
+        // means bootstrap is localhost-only and forbidden for this remote/proxy socket.
+        // Any error other than 400 invalid_username must safely fall back to 'login'.
         try {
           await api.bootstrap('', '');
           if (!cancelled) setMode('login');
         } catch (probeError) {
           if (!cancelled) {
-            setMode(
+            const isBootstrapOpen =
               probeError instanceof ApiError &&
-                probeError.message.includes('bootstrap_already_completed')
-                ? 'login'
-                : 'bootstrap'
-            );
+              probeError.status === 400 &&
+              probeError.message.includes('invalid_username');
+            setMode(isBootstrapOpen ? 'bootstrap' : 'login');
           }
         }
       }

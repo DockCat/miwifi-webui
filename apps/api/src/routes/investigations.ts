@@ -136,10 +136,12 @@ export function registerInvestigationRoutes(
       });
       return { investigationId: investigation.id, status: 'completed', finding: result.finding };
     } catch (error) {
+      request.log.error(error, 'AI investigation failed');
+      const reason = error instanceof Error ? error.message.slice(0, 300) : 'unknown';
       await repository.complete(
         investigation.id,
         'failed',
-        null
+        reason
       );
       await audit.record({
         action: 'ai.investigation_failed',
@@ -151,10 +153,10 @@ export function registerInvestigationRoutes(
         requestId: request.id,
         metadata: {
           provider: provider.mode,
-          reason: error instanceof Error ? error.message.slice(0, 120) : 'unknown'
+          reason: reason.slice(0, 120)
         }
       });
-      return await reply.code(502).send({ error: 'provider_error' });
+      return await reply.code(502).send({ error: 'provider_error', detail: reason });
     }
   });
 }

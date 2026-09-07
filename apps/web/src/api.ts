@@ -69,8 +69,8 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new UnauthorizedError();
   }
   if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(body.error ?? `HTTP ${response.status}`);
+    const body = (await response.json().catch(() => ({}))) as { error?: string; detail?: string };
+    throw new ApiError(body.error ?? `HTTP ${response.status}`, body.detail, response.status);
   }
   return (await response.json()) as T;
 }
@@ -83,9 +83,13 @@ export class UnauthorizedError extends Error {
 }
 
 export class ApiError extends Error {
-  constructor(message: string) {
+  readonly status?: number;
+  readonly detail?: string;
+  constructor(message: string, detail?: string, status?: number) {
     super(message);
     this.name = 'ApiError';
+    this.detail = detail;
+    this.status = status;
   }
 }
 

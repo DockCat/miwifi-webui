@@ -7,6 +7,14 @@
  *   hash), so timing does not reveal account existence;
  * - L-6: X-Forwarded-Proto spoofing does not flip cookie Secure unless
  *   the app is explicitly configured with trustProxy.
+ *
+ * Bootstrap XFF hardening (2026-09-06 review, Vuln 1):
+ * - H-1: a spoofed X-Forwarded-For: 127.0.0.1 must NEVER satisfy the
+ *   localhost-only bootstrap gate — even with trustProxy enabled (which
+ *   makes request.ip header-derived) — because the gate checks the peer
+ *   socket address;
+ * - H-2: non-loopback clients receive a uniform 403 regardless of whether
+ *   the first-run window is open (check order: loopback before user count).
  */
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
@@ -102,5 +110,94 @@ describe('L-6: forwarded-header spoofing without trustProxy', () => {
     assert.ok(!/secure/i.test(raw), 'cookie must not be Secure when proxy is untrusted');
     assert.match(raw, /httponly/i);
     assert.match(raw, /samesite=lax/i);
+  });
+});
+
+describe('H-1: bootstrap loopback gate vs X-Forwarded-For spoofing', () => {
+  // The admin user created by the L-6 test above makes the bootstrap
+  // window closed; a fresh database is needed for the positive path.
+  let freshPool: pg.Pool;
+  let freshApp: FastifyInstance;
+
+  before(async () => {
+    const admin = new pg.Pool({ connectionString: `${BASE}/miwifi` });
+    await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB}_h1`);
+    await admin.query(`CREATE DATABASE ${TEST_DB}_h1`);
+    await admin.end();
+    freshPool = createPool(`${BASE}/${TEST_DB}_h1`);
+    await applyMigrations(freshPool);
+  });
+
+  after(async () => {
+    await freshApp?.close();
+    await freshPool?.end();
+    const admin = new pg.Pool({ connectionString: `${BASE}/miwifi` });
+    await admin.query(`DROP DATABASE IF EXISTS ${TEST_DB}_h1`);
+    await admin.end();
+  });
+
+  it('a spoofed X-Forwarded-For: 127.0.0.1 is rejected even with trustProxy: true', async () => {
+    // trustProxy: true makes request.ip fully header-derived (leftmost XFF
+    // entry) — historically the hardest configuration. The bootstrap gate
+    // must still reject: it checks the peer socket address, not request.ip.
+    // light-my-request's peer socket is 127.0.0.1, so to make the socket
+    // genuinely non-loopback we verify the negative space differently:
+    // the gate must consult the socket, so we assert the header alone never
+    // changes the outcome for a request whose socket is loopback either way.
+    // The real attack (LAN socket + spoofed header) is covered by the
+    // direct-socket test below via app.inject's remoteAddress option.
+    freshApp = await buildApp({ pool: freshPool, trustProxy: true });
+    await freshApp.ready();
+
+    // inject supports remoteAddress — simulate the attacker: a NON-loopback
+    // peer socket sending a spoofed loopback XFF entry.
+    const res = await freshApp.inject({
+      method: 'POST',
+      url: '/api/auth/bootstrap',
+      remoteAddress: '192.168.1.50',
+      payload: JSON.stringify({ username: 'attacker', password: 'attacker-pass-123' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': '127.0.0.1'
+      }
+    });
+    assert.equal(
+      res.statusCode,
+      403,
+      `spoofed XFF must not satisfy the loopback gate (got ${res.statusCode}: ${res.body})`
+    );
+    assert.equal(JSON.parse(res.body).error, 'bootstrap_local_only');
+  });
+
+  it('a genuine loopback socket still bootstraps (positive path, headers ignored)', async () => {
+    // Same app (trustProxy: true), now from a real loopback peer socket.
+    // The user table is still empty: the previous request was rejected.
+    const res = await freshApp.inject({
+      method: 'POST',
+      url: '/api/auth/bootstrap',
+      remoteAddress: '127.0.0.1',
+      payload: JSON.stringify({ username: 'owner', password: 'owner-pass-123' }),
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': '203.0.113.9'
+      }
+    });
+    assert.equal(res.statusCode, 201, `body: ${res.body}`);
+    assert.equal(JSON.parse(res.body).status, 'created');
+  });
+
+  it('non-loopback clients get a uniform 403 whether or not an admin exists', async () => {
+    // Check order: loopback before user count. The admin now exists (created
+    // above), yet a non-loopback client must still see 403 — NOT 409 — so the
+    // response discloses nothing about first-run state.
+    const res = await freshApp.inject({
+      method: 'POST',
+      url: '/api/auth/bootstrap',
+      remoteAddress: '192.168.1.50',
+      payload: JSON.stringify({ username: 'x', password: 'whatever-12345' }),
+      headers: { 'content-type': 'application/json' }
+    });
+    assert.equal(res.statusCode, 403, 'must be 403 (not 409) for non-loopback');
+    assert.equal(JSON.parse(res.body).error, 'bootstrap_local_only');
   });
 });

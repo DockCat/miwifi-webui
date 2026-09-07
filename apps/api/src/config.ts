@@ -13,8 +13,15 @@ export interface AppConfig {
   readonly port: number;
   readonly host: string;
   readonly databaseUrl: string;
-  /** Trust X-Forwarded-* headers (deployed behind the compose proxy). */
-  readonly trustProxy: boolean;
+  /**
+   * Proxy trust for X-Forwarded-* headers (request.ip, protocol, cookie
+   * Secure flag). `true`/`1` trusts every claim (only safe when nothing
+   * untrusted can reach the port); a comma-separated CIDR/IP list (e.g.
+   * `192.168.155.0/24`) trusts only those peers as proxies, so request.ip
+   * resolves to the first hop beyond them — spoofed entries from clients
+   * are ignored. `false` (default) ignores forwarded headers entirely.
+   */
+  readonly trustProxy: boolean | string;
 }
 
 /**
@@ -71,6 +78,29 @@ function parseBool(value: string | undefined): boolean {
   return value === 'true' || value === '1';
 }
 
+/**
+ * Parse TRUST_PROXY: boolean trust-all, a proxy subnet list, or false.
+ * Fastify accepts comma-separated IP/CIDR strings and compiles them via
+ * @fastify/proxy-addr — only listed peers are trusted as proxies, which is
+ * the safe shape for "API behind the compose/Traefik proxy" deployments.
+ */
+function parseTrustProxy(value: string | undefined): boolean | string {
+  const raw = value?.trim();
+  if (raw === undefined || raw === '' || raw === 'false' || raw === '0') return false;
+  if (parseBool(raw)) return true;
+  // Anything else must look like a proxy address list (IP or CIDR entries).
+  if (/^[\d.:a-fA-F/,\s]+$/.test(raw)) {
+    const entries = raw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    if (entries.length > 0) return entries.join(',');
+  }
+  throw new Error(
+    `Invalid TRUST_PROXY value: ${raw}. Use true, false, or a comma-separated proxy IP/CIDR list (e.g. 192.168.155.0/24).`
+  );
+}
+
 export interface LoadConfigOptions {
   /**
    * Load a `.env` file when explicit environment variables are missing.
@@ -87,7 +117,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const port = parsePort(optionalEnv('API_PORT', '3001'));
   const host = optionalEnv('API_HOST', '127.0.0.1');
   const databaseUrl = requireEnv('DATABASE_URL');
-  const trustProxy = parseBool(process.env.TRUST_PROXY);
+  const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
 
   if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
     throw new Error('DATABASE_URL must be a postgres:// or postgresql:// connection string');

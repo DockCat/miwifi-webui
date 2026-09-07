@@ -6,6 +6,7 @@ import { describe, it } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement } from 'react';
 import { DashboardView } from '../src/views/DashboardView.js';
+import { GatewayHardwareArt } from '../src/views/DashboardView.js';
 import { UniFiDonutChart } from '../src/components/charts/UniFiDonutChart.js';
 import { UniFiAreaChart, formatSpeed } from '../src/components/charts/UniFiAreaChart.js';
 import { UniFiUtilizationGauge, WiFiBandBars } from '../src/components/charts/UniFiBarGauge.js';
@@ -77,6 +78,18 @@ describe('UniFi Dashboard components', () => {
     assert.ok(markup.includes('CPU'));
     assert.ok(markup.includes('Memory'));
     assert.ok(markup.includes('Temperature'));
+    // Customizable layout grid and blocks
+    assert.ok(markup.includes('Customize Layout'));
+    assert.ok(markup.includes('dashboard-grid'));
+    assert.ok(markup.includes('data-block-id="gateway"'));
+    assert.ok(markup.includes('data-block-id="recent_events"'));
+    assert.ok(markup.includes('data-block-id="traffic_overview"'));
+    assert.ok(markup.includes('data-block-id="client_types"'));
+    assert.ok(markup.includes('data-block-id="wifi_clients"'));
+    assert.ok(markup.includes('data-block-id="most_active_clients"'));
+    assert.ok(markup.includes('data-block-id="throughput_history"'));
+    assert.ok(markup.includes('gateway-adaptive-container'));
+    assert.ok(markup.includes('hide-on-compact'));
   });
 
   it('renders UniFiDonutChart with segments, center totals, and formatValue support', () => {
@@ -156,5 +169,35 @@ describe('UniFi Dashboard components', () => {
     assert.equal(formatBytes(2048), '2.0 KB');
     assert.equal(formatBytes(52428800), '50.00 MB');
     assert.equal(formatBytes(10737418240), '10.00 GB');
+  });
+
+  it('lights WAN and LAN ports from live state', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GatewayHardwareArt, { wanUp: true, wiredCount: 2, reachable: true })
+    );
+    assert.ok(markup.includes('port wan active'));
+    // Two online wired clients -> exactly two lit LAN ports.
+    assert.equal(markup.match(/port lan active/g)?.length, 2);
+    // Total LAN ports rendered stays at 3.
+    assert.equal(markup.match(/port lan/g)?.length, 3);
+    assert.ok(markup.includes('led power on'));
+    assert.ok(markup.includes('led link on'));
+  });
+
+  it('keeps ports dark when WAN is down and no wired clients are online', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GatewayHardwareArt, { wanUp: false, wiredCount: 0, reachable: false })
+    );
+    assert.ok(!markup.includes('port wan active'));
+    assert.ok(!markup.includes('port lan active'));
+    assert.ok(!markup.includes('led power on'));
+    assert.ok(!markup.includes('led link on'));
+  });
+
+  it('caps lit LAN ports at the drawn port count', () => {
+    const markup = renderToStaticMarkup(
+      createElement(GatewayHardwareArt, { wanUp: true, wiredCount: 7, reachable: true })
+    );
+    assert.equal(markup.match(/port lan active/g)?.length, 3);
   });
 });

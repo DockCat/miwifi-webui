@@ -20,6 +20,8 @@ import { UniFiAreaChart, formatSpeed } from '../components/charts/UniFiAreaChart
 import { UniFiUtilizationGauge, WiFiBandBars } from '../components/charts/UniFiBarGauge.js';
 import { DeviceUsageDrawer, formatBytes } from '../components/DeviceUsageDrawer.js';
 import { ConnectionIcon } from '../components/ConnectionIcon.js';
+import { useDashboardLayout } from '../components/dashboard/useDashboardLayout.js';
+import { DashboardGrid, DashboardBlock } from '../components/dashboard/DashboardGrid.js';
 
 interface StatusPayload {
   capturedAt?: string;
@@ -56,6 +58,51 @@ export function formatUptime(seconds?: number): string {
   return `${m}m`;
 }
 
+/** LAN ports drawn on the gateway hardware art (matches AX6000-class layout). */
+const LAN_PORT_COUNT = 3;
+
+export interface GatewayHardwareArtProps {
+  /** WAN uplink connected — lights the blue WAN port. */
+  wanUp: boolean;
+  /** Online wired clients — each lights one green LAN port (capped at 3). */
+  wiredCount: number;
+  /** Router reachable from the app — drives the power LED. */
+  reachable: boolean;
+}
+
+/**
+ * Gateway chassis illustration. Port lights reflect live state: the WAN
+ * port follows the uplink, LAN ports light per online wired client. The
+ * MiWiFi API exposes no per-port link state, so the wired-client count
+ * is the proxy for occupied LAN ports.
+ */
+export function GatewayHardwareArt({ wanUp, wiredCount, reachable }: GatewayHardwareArtProps) {
+  const lanLit = Math.max(0, Math.min(LAN_PORT_COUNT, wiredCount));
+  return (
+    <div className="gateway-hardware-art">
+      <div className="rack-unit">
+        <div className="rack-ports">
+          <span
+            className={`port wan${wanUp ? ' active' : ''}`}
+            title={`WAN Port — ${wanUp ? 'connected' : 'down'}`}
+          />
+          {Array.from({ length: LAN_PORT_COUNT }, (_, i) => (
+            <span
+              key={i}
+              className={`port lan${i < lanLit ? ' active' : ''}`}
+              title={`LAN Port ${i + 1} — ${i < lanLit ? 'in use' : 'idle'}`}
+            />
+          ))}
+        </div>
+        <div className="rack-leds">
+          <span className={`led power${reachable ? ' on' : ''}`} title="Power" />
+          <span className={`led link${wanUp ? ' on' : ''}`} title="WAN link" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function DashboardView({ router }: { router: RouterSummary | null }) {
   const { t } = useI18n();
   const [status, setStatus] = useState<StatusPayload | null>(null);
@@ -67,6 +114,15 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
   const [trafficTab, setTrafficTab] = useState<'total' | 'live'>('total');
   const [clientTab, setClientTab] = useState<'all' | 'wired' | 'wireless' | 'guest'>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
+  const {
+    layout,
+    commitLayout,
+    isEditing,
+    setIsEditing,
+    updateBlockPosition,
+    updateBlockSize,
+    resetLayout
+  } = useDashboardLayout(router?.id ?? 'default');
 
   // Initial load
   useEffect(() => {
@@ -313,458 +369,468 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
               {t('dashboard.range_1m')}
             </button>
           </div>
+
+          <div className="layout-controls">
+            {isEditing && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={resetLayout}
+                title={t('dashboard.reset_layout')}
+              >
+                ↺ {t('dashboard.reset_layout')}
+              </button>
+            )}
+            <button
+              className={`btn btn-sm ${isEditing ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setIsEditing(!isEditing)}
+            >
+              {isEditing ? `✓ ${t('dashboard.done_editing')}` : `⚙ ${t('dashboard.customize_layout')}`}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Main Grid Layout */}
-      <div className="unifi-main-grid">
-        {/* Left Column: Gateway & Hardware Card */}
-        <div className="unifi-col gateway-col">
-          <Card>
-            <div className="gateway-hero">
-              {/* Photorealistic / Vector Hardware Representation */}
-              <div className="gateway-hardware-art">
-                <div className="rack-unit">
-                  <div className="rack-ports">
-                    <span className="port wan active" title="WAN Port" />
-                    <span className="port lan" />
-                    <span className="port lan" />
-                    <span className="port lan" />
-                  </div>
-                  <div className="rack-leds">
-                    <span className="led power on" />
-                    <span className="led link on" />
-                  </div>
+      {/* Main Customizable Grid Layout */}
+      <DashboardGrid
+        layout={layout}
+        isEditing={isEditing}
+        onLayoutChange={commitLayout}
+        onBlockMove={updateBlockPosition}
+        onBlockResize={updateBlockSize}
+      >
+        {/* 1. Gateway & Hardware Card */}
+        <DashboardBlock id="gateway">
+          <div className="gateway-adaptive-container">
+            <div className="gateway-col-left">
+              <div className="gateway-hero">
+                <GatewayHardwareArt
+                  wanUp={!status?.unreachable && (status?.wanUp ?? true)}
+                  wiredCount={wiredDevices.length}
+                  reachable={!status?.unreachable}
+                />
+                <div className="gateway-meta">
+                  <h2 className="gateway-title">{router.model ?? router.host}</h2>
+                  <span className="gateway-rom mono muted">
+                    {router.romVersion ? `Firmware ${router.romVersion}` : 'MiWiFi OS'}
+                  </span>
                 </div>
               </div>
 
-              <div className="gateway-meta">
-                <h2 className="gateway-title">{router.model ?? router.host}</h2>
-                <span className="gateway-rom mono muted">
-                  {router.romVersion ? `Firmware ${router.romVersion}` : 'MiWiFi OS'}
-                </span>
+              <div className="gateway-info-list">
+                <div className="info-row">
+                  <span className="info-label">{t('dashboard.wan_ip')}</span>
+                  <span className="info-val mono">{status?.wanUp ? router.host : '—'}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">{t('dashboard.gateway_ip')}</span>
+                  <span className="info-val mono">{router.host}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">{t('dashboard.uptime')}</span>
+                  <span className="info-val">{formatUptime(status?.upTimeSeconds)}</span>
+                </div>
+                <div className="info-row">
+                  <span className="info-label">Status</span>
+                  <StatusBadge
+                    online={status?.unreachable ? false : (status?.wanUp ?? true)}
+                    label={
+                      status?.unreachable
+                        ? t('status.unreachable')
+                        : status?.wanUp === false
+                          ? t('status.offline')
+                          : t('status.online')
+                    }
+                  />
+                </div>
               </div>
             </div>
 
-            {/* Network IPs & Uptime */}
-            <div className="gateway-info-list">
-              <div className="info-row">
-                <span className="info-label">{t('dashboard.wan_ip')}</span>
-                <span className="info-val mono">{status?.wanUp ? router.host : '—'}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">{t('dashboard.gateway_ip')}</span>
-                <span className="info-val mono">{router.host}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">{t('dashboard.uptime')}</span>
-                <span className="info-val">{formatUptime(status?.upTimeSeconds)}</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Status</span>
-                <StatusBadge
-                  online={status?.unreachable ? false : (status?.wanUp ?? true)}
-                  label={
-                    status?.unreachable
-                      ? t('status.unreachable')
-                      : status?.wanUp === false
-                        ? t('status.offline')
-                        : t('status.online')
-                  }
+            <div className="gateway-col-right">
+              <div className="gateway-gauges">
+                <UniFiUtilizationGauge
+                  label={t('dashboard.down_utilization')}
+                  speed={wanDownspeed}
+                  variant="down"
+                />
+                <UniFiUtilizationGauge
+                  label={t('dashboard.up_utilization')}
+                  speed={wanUpspeed}
+                  variant="up"
                 />
               </div>
-            </div>
 
-            <hr className="unifi-divider" />
+              <hr className="unifi-divider" />
 
-            {/* Utilization Gauges */}
-            <div className="gateway-gauges">
-              <UniFiUtilizationGauge
-                label={t('dashboard.down_utilization')}
-                speed={wanDownspeed}
-                variant="down"
-              />
-              <UniFiUtilizationGauge
-                label={t('dashboard.up_utilization')}
-                speed={wanUpspeed}
-                variant="up"
-              />
-            </div>
-
-            <hr className="unifi-divider" />
-
-            {/* Hardware System Load */}
-            <div className="system-load-summary">
-              <div className="load-metric">
-                <span className="load-label">{t('dashboard.cpu')}</span>
-                <span className="load-val">
-                  {status?.cpuLoad !== undefined ? `${status.cpuLoad}%` : '—'}
-                </span>
-              </div>
-              <div className="load-metric">
-                <span className="load-label">{t('dashboard.memory')}</span>
-                <span className="load-val">
-                  {status?.memUsed !== undefined
-                    ? status?.memTotal !== undefined
-                      ? `${status.memUsed}/${status.memTotal} MB`
-                      : `${status.memUsed} MB`
-                    : '—'}
-                </span>
-              </div>
-              <div className="load-metric">
-                <span className="load-label">{t('dashboard.temperature')}</span>
-                <span className="load-val">
-                  {status?.temperature !== undefined && status.temperature > 0
-                    ? `${status.temperature}°C`
-                    : '—'}
-                </span>
-              </div>
-            </div>
-          </Card>
-
-          {/* Recent Events Card */}
-          <Card title={t('dashboard.recent_events')}>
-            {recentEvents.length === 0 ? (
-              <EmptyState>{t('events.empty')}</EmptyState>
-            ) : (
-              <ul className="event-list" style={{ fontSize: '0.8rem' }}>
-                {recentEvents.slice(0, 5).map((event) => (
-                  <li key={event.id}>
-                    <span className="event-kind">{t(`presence.${event.kind}`)}</span>
-                    <time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        </div>
-
-        {/* Center/Right Content Cards */}
-        <div className="unifi-col content-col">
-          <div className="dashboard-cards-grid">
-            {/* 1. Traffic Overview Card */}
-            <Card
-              title={
-                <div className="card-header-with-tabs">
-                  <span>{t('dashboard.traffic_overview')}</span>
-                  <div className="client-tabs">
-                    <button
-                      className={`tab-btn ${trafficTab === 'total' ? 'active' : ''}`}
-                      onClick={() => setTrafficTab('total')}
-                    >
-                      {t('dashboard.traffic_tab_total')}
-                    </button>
-                    <button
-                      className={`tab-btn ${trafficTab === 'live' ? 'active' : ''}`}
-                      onClick={() => setTrafficTab('live')}
-                    >
-                      {t('dashboard.traffic_tab_live')}
-                    </button>
-                  </div>
+              <div className="system-load-summary">
+                <div className="load-metric">
+                  <span className="load-label">{t('dashboard.cpu')}</span>
+                  <span className="load-val">
+                    {status?.cpuLoad !== undefined ? `${status.cpuLoad}%` : '—'}
+                  </span>
                 </div>
-              }
-            >
-              <div className="traffic-overview-body">
-                {trafficTab === 'total' ? (
-                  <>
-                    <UniFiDonutChart
-                      segments={cumulativeSegments}
-                      totalLabel={
-                        totalIdentified > 0
-                          ? t('dashboard.identified_traffic')
-                          : t('dashboard.wan_traffic_total')
-                      }
-                      totalValue={formatBytes(displayTotalTraffic)}
-                      formatValue={formatBytes}
-                      size={150}
-                      strokeWidth={14}
-                    />
-
-                    <div className="traffic-breakdown-table">
-                      <div className="traffic-totals-chips">
-                        <span className="chip down">↓ {formatBytes(totalDownload)}</span>
-                        <span className="chip up">↑ {formatBytes(totalUpload)}</span>
-                      </div>
-
-                      <table className="traffic-table">
-                        <thead>
-                          <tr>
-                            <th>{t('devices.name')}</th>
-                            <th>{t('dashboard.down')}</th>
-                            <th>{t('dashboard.up')}</th>
-                            <th>{t('dashboard.traffic')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedByTraffic.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
-                                {t('dashboard.no_traffic_data')}
-                              </td>
-                            </tr>
-                          ) : (
-                            sortedByTraffic.slice(0, 5).map((d) => (
-                              <tr
-                                key={d.id}
-                                className="clickable-device-row"
-                                onClick={() => setSelectedDevice(d)}
-                                title="Click to view device usage"
-                              >
-                                <td className="device-name-cell">
-                                  <span className="device-bullet" />
-                                  <span className="name">{d.name ?? d.mac ?? d.id}</span>
-                                </td>
-                                <td className="speed-cell">{formatBytes(d.downloadTotal ?? 0)}</td>
-                                <td className="speed-cell">{formatBytes(d.uploadTotal ?? 0)}</td>
-                                <td className="speed-cell highlight">
-                                  {formatBytes((d.downloadTotal ?? 0) + (d.uploadTotal ?? 0))}
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <UniFiDonutChart
-                      segments={liveSegments}
-                      totalLabel={t('dashboard.live_throughput')}
-                      totalValue={formatSpeed(liveThroughput)}
-                      formatValue={formatSpeed}
-                      size={150}
-                      strokeWidth={14}
-                    />
-
-                    <div className="traffic-breakdown-table">
-                      <div className="traffic-totals-chips">
-                        <span className="chip down">↓ {formatSpeed(wanDownspeed)}</span>
-                        <span className="chip up">↑ {formatSpeed(wanUpspeed)}</span>
-                      </div>
-
-                      <table className="traffic-table">
-                        <thead>
-                          <tr>
-                            <th>{t('devices.name')}</th>
-                            <th>{t('dashboard.traffic_down_rate')}</th>
-                            <th>{t('dashboard.traffic_up_rate')}</th>
-                            <th>{t('dashboard.traffic_total_rate')}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {sortedByLiveRate.length === 0 ? (
-                            <tr>
-                              <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
-                                {t('dashboard.no_traffic_data')}
-                              </td>
-                            </tr>
-                          ) : (
-                            sortedByLiveRate.slice(0, 5).map((d) => {
-                              const totalRate = (d.downspeed ?? 0) + (d.upspeed ?? 0);
-                              return (
-                                <tr
-                                  key={d.id}
-                                  className="clickable-device-row"
-                                  onClick={() => setSelectedDevice(d)}
-                                  title="Click to view device usage"
-                                >
-                                  <td className="device-name-cell">
-                                    <span className="device-bullet" />
-                                    <span className="name">{d.name ?? d.mac ?? d.id}</span>
-                                  </td>
-                                  <td className="speed-cell">{formatSpeed(d.downspeed ?? 0)}</td>
-                                  <td className="speed-cell">{formatSpeed(d.upspeed ?? 0)}</td>
-                                  <td className="speed-cell highlight">{formatSpeed(totalRate)}</td>
-                                </tr>
-                              );
-                            })
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                )}
-              </div>
-            </Card>
-
-            {/* 2. Client Device Types Card */}
-            <Card
-              title={
-                <div className="card-header-with-tabs">
-                  <span>{t('dashboard.client_types')}</span>
-                  <div className="client-tabs">
-                    <button
-                      className={`tab-btn ${clientTab === 'all' ? 'active' : ''}`}
-                      onClick={() => setClientTab('all')}
-                    >
-                      {t('dashboard.tab_all')}
-                    </button>
-                    <button
-                      className={`tab-btn ${clientTab === 'wired' ? 'active' : ''}`}
-                      onClick={() => setClientTab('wired')}
-                    >
-                      {t('dashboard.tab_wired')}
-                    </button>
-                    <button
-                      className={`tab-btn ${clientTab === 'wireless' ? 'active' : ''}`}
-                      onClick={() => setClientTab('wireless')}
-                    >
-                      {t('dashboard.tab_wireless')}
-                    </button>
-                  </div>
+                <div className="load-metric">
+                  <span className="load-label">{t('dashboard.memory')}</span>
+                  <span className="load-val">
+                    {status?.memUsed !== undefined
+                      ? status?.memTotal !== undefined
+                        ? `${status.memUsed}/${status.memTotal} MB`
+                        : `${status.memUsed} MB`
+                      : '—'}
+                  </span>
                 </div>
-              }
-            >
-              <div className="clients-overview-body">
+                <div className="load-metric">
+                  <span className="load-label">{t('dashboard.temperature')}</span>
+                  <span className="load-val">
+                    {status?.temperature !== undefined && status.temperature > 0
+                      ? `${status.temperature}°C`
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </DashboardBlock>
+
+        {/* 2. Recent Events Card */}
+        <DashboardBlock id="recent_events" title={t('dashboard.recent_events')}>
+          {recentEvents.length === 0 ? (
+            <EmptyState>{t('events.empty')}</EmptyState>
+          ) : (
+            <ul className="event-list" style={{ fontSize: '0.8rem', height: '100%', overflowY: 'auto' }}>
+              {recentEvents.slice(0, 10).map((event) => (
+                <li key={event.id}>
+                  <span className="event-kind">{t(`presence.${event.kind}`)}</span>
+                  <time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DashboardBlock>
+
+        {/* 3. Traffic Overview Card */}
+        <DashboardBlock
+          id="traffic_overview"
+          title={
+            <div className="card-header-with-tabs">
+              <span>{t('dashboard.traffic_overview')}</span>
+              <div className="client-tabs">
+                <button
+                  className={`tab-btn ${trafficTab === 'total' ? 'active' : ''}`}
+                  onClick={() => setTrafficTab('total')}
+                >
+                  {t('dashboard.traffic_tab_total')}
+                </button>
+                <button
+                  className={`tab-btn ${trafficTab === 'live' ? 'active' : ''}`}
+                  onClick={() => setTrafficTab('live')}
+                >
+                  {t('dashboard.traffic_tab_live')}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div className="traffic-overview-body">
+            {trafficTab === 'total' ? (
+              <>
                 <UniFiDonutChart
-                  segments={
-                    clientTab === 'all'
-                      ? clientTypeSegments
-                      : [
-                          {
-                            label: clientTab === 'wired' ? 'Wired' : 'Wireless',
-                            value: filteredClientDevices.length,
-                            color: clientTab === 'wired' ? '#2563eb' : '#10b981'
-                          }
-                        ]
-                  }
+                  segments={cumulativeSegments}
                   totalLabel={
-                    clientTab === 'all'
-                      ? t('dashboard.total_clients')
-                      : clientTab === 'wired'
-                        ? t('dashboard.tab_wired')
-                        : t('dashboard.tab_wireless')
+                    totalIdentified > 0
+                      ? t('dashboard.identified_traffic')
+                      : t('dashboard.wan_traffic_total')
                   }
-                  totalValue={String(
-                    clientTab === 'all'
-                      ? (onlineCount ?? onlineDevices.length)
-                      : filteredClientDevices.length
-                  )}
+                  totalValue={formatBytes(displayTotalTraffic)}
+                  formatValue={formatBytes}
                   size={150}
                   strokeWidth={14}
                 />
 
-                <div className="client-types-breakdown">
-                  {clientTab === 'all' ? (
-                    <>
-                      <div className="type-row">
-                        <span className="type-dot wired" />
-                        <span className="type-name">Wired (LAN)</span>
-                        <span className="type-count">{wiredDevices.length}</span>
-                      </div>
-                      <div className="type-row">
-                        <span className="type-dot wifi5" />
-                        <span className="type-name">Wi-Fi 5 GHz</span>
-                        <span className="type-count">{wifi5gDevices.length}</span>
-                      </div>
-                      <div className="type-row">
-                        <span className="type-dot wifi2" />
-                        <span className="type-name">Wi-Fi 2.4 GHz</span>
-                        <span className="type-count">{wifi2gDevices.length}</span>
-                      </div>
-                      {guestDevices.length > 0 && (
-                        <div className="type-row">
-                          <span className="type-dot guest" />
-                          <span className="type-name">Guest</span>
-                          <span className="type-count">{guestDevices.length}</span>
-                        </div>
+                <div className="traffic-breakdown-table">
+                  <div className="traffic-totals-chips">
+                    <span className="chip down">↓ {formatBytes(totalDownload)}</span>
+                    <span className="chip up">↑ {formatBytes(totalUpload)}</span>
+                  </div>
+
+                  <table className="traffic-table">
+                    <thead>
+                      <tr>
+                        <th>{t('devices.name')}</th>
+                        <th className="hide-on-compact">{t('dashboard.down')}</th>
+                        <th className="hide-on-compact">{t('dashboard.up')}</th>
+                        <th>{t('dashboard.traffic')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedByTraffic.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
+                            {t('dashboard.no_traffic_data')}
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedByTraffic.slice(0, 8).map((d) => (
+                          <tr
+                            key={d.id}
+                            className="clickable-device-row"
+                            onClick={() => setSelectedDevice(d)}
+                            title="Click to view device usage"
+                          >
+                            <td className="device-name-cell">
+                              <span className="device-bullet" />
+                              <span className="name">{d.name ?? d.mac ?? d.id}</span>
+                            </td>
+                            <td className="speed-cell hide-on-compact">{formatBytes(d.downloadTotal ?? 0)}</td>
+                            <td className="speed-cell hide-on-compact">{formatBytes(d.uploadTotal ?? 0)}</td>
+                            <td className="speed-cell highlight">
+                              {formatBytes((d.downloadTotal ?? 0) + (d.uploadTotal ?? 0))}
+                            </td>
+                          </tr>
+                        ))
                       )}
-                    </>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                      {filteredClientDevices.slice(0, 4).map((d) => (
-                        <div
-                          key={d.id}
-                          className="clickable-device-row"
-                          onClick={() => setSelectedDevice(d)}
-                          style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            padding: '0.25rem 0.4rem',
-                            borderRadius: '4px'
-                          }}
-                        >
-                          <span style={{ fontWeight: 500 }}>{d.name ?? d.mac ?? d.id}</span>
-                          <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--ok)' }}>
-                            ↓ {formatSpeed(d.downspeed ?? 0)}
-                          </span>
-                        </div>
-                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <>
+                <UniFiDonutChart
+                  segments={liveSegments}
+                  totalLabel={t('dashboard.live_throughput')}
+                  totalValue={formatSpeed(liveThroughput)}
+                  formatValue={formatSpeed}
+                  size={150}
+                  strokeWidth={14}
+                />
+
+                <div className="traffic-breakdown-table">
+                  <div className="traffic-totals-chips">
+                    <span className="chip down">↓ {formatSpeed(wanDownspeed)}</span>
+                    <span className="chip up">↑ {formatSpeed(wanUpspeed)}</span>
+                  </div>
+
+                  <table className="traffic-table">
+                    <thead>
+                      <tr>
+                        <th>{t('devices.name')}</th>
+                        <th className="hide-on-compact">{t('dashboard.traffic_down_rate')}</th>
+                        <th className="hide-on-compact">{t('dashboard.traffic_up_rate')}</th>
+                        <th>{t('dashboard.traffic_total_rate')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedByLiveRate.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} style={{ textAlign: 'center', color: 'var(--muted)', padding: '1rem' }}>
+                            {t('dashboard.no_traffic_data')}
+                          </td>
+                        </tr>
+                      ) : (
+                        sortedByLiveRate.slice(0, 8).map((d) => {
+                          const totalRate = (d.downspeed ?? 0) + (d.upspeed ?? 0);
+                          return (
+                            <tr
+                              key={d.id}
+                              className="clickable-device-row"
+                              onClick={() => setSelectedDevice(d)}
+                              title="Click to view device usage"
+                            >
+                              <td className="device-name-cell">
+                                <span className="device-bullet" />
+                                <span className="name">{d.name ?? d.mac ?? d.id}</span>
+                              </td>
+                              <td className="speed-cell hide-on-compact">{formatSpeed(d.downspeed ?? 0)}</td>
+                              <td className="speed-cell hide-on-compact">{formatSpeed(d.upspeed ?? 0)}</td>
+                              <td className="speed-cell highlight">{formatSpeed(totalRate)}</td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+          </div>
+        </DashboardBlock>
+
+        {/* 4. Client Device Types Card */}
+        <DashboardBlock
+          id="client_types"
+          title={
+            <div className="card-header-with-tabs">
+              <span>{t('dashboard.client_types')}</span>
+              <div className="client-tabs">
+                <button
+                  className={`tab-btn ${clientTab === 'all' ? 'active' : ''}`}
+                  onClick={() => setClientTab('all')}
+                >
+                  {t('dashboard.tab_all')}
+                </button>
+                <button
+                  className={`tab-btn ${clientTab === 'wired' ? 'active' : ''}`}
+                  onClick={() => setClientTab('wired')}
+                >
+                  {t('dashboard.tab_wired')}
+                </button>
+                <button
+                  className={`tab-btn ${clientTab === 'wireless' ? 'active' : ''}`}
+                  onClick={() => setClientTab('wireless')}
+                >
+                  {t('dashboard.tab_wireless')}
+                </button>
+              </div>
+            </div>
+          }
+        >
+          <div className="clients-overview-body">
+            <UniFiDonutChart
+              segments={
+                clientTab === 'all'
+                  ? clientTypeSegments
+                  : [
+                      {
+                        label: clientTab === 'wired' ? 'Wired' : 'Wireless',
+                        value: filteredClientDevices.length,
+                        color: clientTab === 'wired' ? '#2563eb' : '#10b981'
+                      }
+                    ]
+              }
+              totalLabel={
+                clientTab === 'all'
+                  ? t('dashboard.total_clients')
+                  : clientTab === 'wired'
+                    ? t('dashboard.tab_wired')
+                    : t('dashboard.tab_wireless')
+              }
+              totalValue={String(
+                clientTab === 'all'
+                  ? (onlineCount ?? onlineDevices.length)
+                  : filteredClientDevices.length
+              )}
+              size={150}
+              strokeWidth={14}
+            />
+
+            <div className="client-types-breakdown">
+              {clientTab === 'all' ? (
+                <>
+                  <div className="type-row">
+                    <span className="type-dot wired" />
+                    <span className="type-name">Wired (LAN)</span>
+                    <span className="type-count">{wiredDevices.length}</span>
+                  </div>
+                  <div className="type-row">
+                    <span className="type-dot wifi5" />
+                    <span className="type-name">Wi-Fi 5 GHz</span>
+                    <span className="type-count">{wifi5gDevices.length}</span>
+                  </div>
+                  <div className="type-row">
+                    <span className="type-dot wifi2" />
+                    <span className="type-name">Wi-Fi 2.4 GHz</span>
+                    <span className="type-count">{wifi2gDevices.length}</span>
+                  </div>
+                  {guestDevices.length > 0 && (
+                    <div className="type-row">
+                      <span className="type-dot guest" />
+                      <span className="type-name">Guest</span>
+                      <span className="type-count">{guestDevices.length}</span>
                     </div>
                   )}
-                </div>
-              </div>
-            </Card>
-
-            {/* 3. WiFi Clients Distribution */}
-            <Card title={t('dashboard.wifi_clients')}>
-              <WiFiBandBars
-                wifi2gCount={wifi2gDevices.length}
-                wifi5gCount={wifi5gDevices.length}
-                wiredCount={wiredDevices.length}
-                guestCount={guestDevices.length}
-              />
-            </Card>
-
-            {/* 4. Most Active Clients */}
-            <Card title={t('dashboard.most_active_clients')}>
-              {mostActiveClients.length === 0 ? (
-                <EmptyState>{t('devices.empty')}</EmptyState>
+                </>
               ) : (
-                <div className="active-clients-carousel">
-                  {mostActiveClients.map((client) => {
-                    const totalRate = (client.downspeed ?? 0) + (client.upspeed ?? 0);
-                    return (
-                      <div
-                        key={client.id}
-                        className="active-client-card"
-                        onClick={() => setSelectedDevice(client)}
-                        title="Click to view detailed usage"
-                      >
-                        <div className="client-avatar">
-                          <ConnectionIcon connectionType={client.connectionType} size={22} />
-                        </div>
-                        <div className="client-info">
-                          <span className="client-name">
-                            {client.name ?? client.mac ?? client.id}
-                          </span>
-                          <span className="client-rate mono">
-                            {totalRate > 0
-                              ? `↓ ${formatSpeed(client.downspeed ?? 0)}`
-                              : (client.downloadTotal ?? 0) + (client.uploadTotal ?? 0) > 0
-                                ? `Idle (${formatBytes((client.downloadTotal ?? 0) + (client.uploadTotal ?? 0))})`
-                                : 'Idle'}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                  {filteredClientDevices.slice(0, 6).map((d) => (
+                    <div
+                      key={d.id}
+                      className="clickable-device-row"
+                      onClick={() => setSelectedDevice(d)}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        padding: '0.25rem 0.4rem',
+                        borderRadius: '4px'
+                      }}
+                    >
+                      <span style={{ fontWeight: 500 }}>{d.name ?? d.mac ?? d.id}</span>
+                      <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--ok)' }}>
+                        ↓ {formatSpeed(d.downspeed ?? 0)}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               )}
-            </Card>
+            </div>
           </div>
+        </DashboardBlock>
 
-          {/* 5. Bottom: Full-Width Throughput & Active Clients History Area Chart */}
-          <Card
-            title={
-              <div className="card-header-with-tabs">
-                <span>{t('dashboard.throughput_history')}</span>
-                <span className="chart-legend">
-                  <span className="legend-item down">
-                    <span className="dot" /> Downlink
-                  </span>
-                  <span className="legend-item up">
-                    <span className="dot" /> Uplink
-                  </span>
+        {/* 5. WiFi Clients Distribution */}
+        <DashboardBlock id="wifi_clients" title={t('dashboard.wifi_clients')}>
+          <WiFiBandBars
+            wifi2gCount={wifi2gDevices.length}
+            wifi5gCount={wifi5gDevices.length}
+            wiredCount={wiredDevices.length}
+            guestCount={guestDevices.length}
+          />
+        </DashboardBlock>
+
+        {/* 6. Most Active Clients */}
+        <DashboardBlock id="most_active_clients" title={t('dashboard.most_active_clients')}>
+          {mostActiveClients.length === 0 ? (
+            <EmptyState>{t('devices.empty')}</EmptyState>
+          ) : (
+            <div className="active-clients-carousel">
+              {mostActiveClients.map((client) => {
+                const totalRate = (client.downspeed ?? 0) + (client.upspeed ?? 0);
+                return (
+                  <div
+                    key={client.id}
+                    className="active-client-card"
+                    onClick={() => setSelectedDevice(client)}
+                    title="Click to view detailed usage"
+                  >
+                    <div className="client-avatar">
+                      <ConnectionIcon connectionType={client.connectionType} size={22} />
+                    </div>
+                    <div className="client-info">
+                      <span className="client-name">
+                        {client.name ?? client.mac ?? client.id}
+                      </span>
+                      <span className="client-rate mono">
+                        {totalRate > 0
+                          ? `↓ ${formatSpeed(client.downspeed ?? 0)}`
+                          : (client.downloadTotal ?? 0) + (client.uploadTotal ?? 0) > 0
+                            ? `Idle (${formatBytes((client.downloadTotal ?? 0) + (client.uploadTotal ?? 0))})`
+                            : 'Idle'}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DashboardBlock>
+
+        {/* 7. Network Throughput History */}
+        <DashboardBlock
+          id="throughput_history"
+          title={
+            <div className="card-header-with-tabs">
+              <span>{t('dashboard.throughput_history')}</span>
+              <span className="chart-legend">
+                <span className="legend-item down">
+                  <span className="dot" /> Downlink
                 </span>
-              </div>
-            }
-          >
-            <UniFiAreaChart data={timeseries} height={220} range={range} />
-          </Card>
-        </div>
-      </div>
+                <span className="legend-item up">
+                  <span className="dot" /> Uplink
+                </span>
+              </span>
+            </div>
+          }
+        >
+          <UniFiAreaChart data={timeseries} responsive range={range} />
+        </DashboardBlock>
+      </DashboardGrid>
 
       {/* Slide-over Device Usage Drawer */}
       {selectedDevice && (

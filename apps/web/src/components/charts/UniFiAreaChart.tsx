@@ -1,10 +1,11 @@
-import { useState, useRef, useId } from 'react';
+import { useState, useRef, useId, useEffect } from 'react';
 import type { TimeseriesPoint } from '../../api.js';
 
 export interface UniFiAreaChartProps {
   data: TimeseriesPoint[];
   height?: number;
   range?: '1d' | '1w' | '1m';
+  responsive?: boolean;
 }
 
 export function formatSpeed(bytesPerSec: number): string {
@@ -29,16 +30,34 @@ export function formatTimeLabel(iso: string, range: '1d' | '1w' | '1m'): string 
 export function UniFiAreaChart({
   data,
   height = 200,
-  range = '1d'
+  range = '1d',
+  responsive = false
 }: UniFiAreaChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [measuredHeight, setMeasuredHeight] = useState<number>(height);
+  const [containerWidth, setContainerWidth] = useState<number>(800);
   const idPrefix = useId();
 
+  useEffect(() => {
+    if (!responsive || typeof window === 'undefined' || !window.ResizeObserver || !containerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const h = entry.contentRect.height;
+        const w = entry.contentRect.width;
+        if (h > 60) setMeasuredHeight(Math.round(h));
+        if (w > 60) setContainerWidth(Math.round(w));
+      }
+    });
+    ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, [responsive]);
+
+  const effectiveHeight = responsive ? measuredHeight : height;
   const width = 800; // SVG internal coordinate width
   const padding = { top: 20, right: 16, bottom: 28, left: 56 };
   const chartW = width - padding.left - padding.right;
-  const chartH = height - padding.top - padding.bottom;
+  const chartH = Math.max(20, effectiveHeight - padding.top - padding.bottom);
 
   // Handle empty or small data
   const chartData =
@@ -162,17 +181,19 @@ export function UniFiAreaChart({
     { label: '0 B/s', y: baseline }
   ];
 
-  // X ticks: evenly spaced labels (bounded to points.length)
+  // X ticks: adaptively spaced labels (bounded to points.length and container width)
   const xIndices =
-    points.length <= 3
-      ? points.map((_, i) => i)
-      : [
-          0,
-          Math.floor(points.length / 4),
-          Math.floor(points.length / 2),
-          Math.floor((3 * points.length) / 4),
-          points.length - 1
-        ];
+    points.length <= 3 || containerWidth < 320
+      ? [0, points.length - 1]
+      : containerWidth < 500
+        ? [0, Math.floor(points.length / 2), points.length - 1]
+        : [
+            0,
+            Math.floor(points.length / 4),
+            Math.floor(points.length / 2),
+            Math.floor((3 * points.length) / 4),
+            points.length - 1
+          ];
   const xTicks = Array.from(new Set(xIndices))
     .filter((idx) => idx >= 0 && idx < points.length && points[idx] !== undefined)
     .map((idx) => ({
@@ -187,7 +208,7 @@ export function UniFiAreaChart({
     <div className="unifi-area-chart-wrap" ref={containerRef}>
       <svg
         className="unifi-area-chart-svg"
-        viewBox={`0 0 ${width} ${height}`}
+        viewBox={`0 0 ${width} ${effectiveHeight}`}
         preserveAspectRatio="none"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setHoverIdx(null)}

@@ -413,7 +413,25 @@ This starts both apps in parallel:
 
 Endpoints: `GET /api/health` (liveness), `GET /api/ready` (database readiness).
 
-First run: open http://localhost:5173, create the administrator (bootstrap is localhost-only), then onboard your router under Settings.
+### Create initial administrator
+
+For security (ADR 0003), first-run bootstrap creates a single administrator and then permanently closes:
+* **Local development (direct loopback)**: Opening http://localhost:5173 will display the initial administrator creation form when accessed directly without a reverse proxy.
+* **Docker Compose / Reverse Proxy**: Web-based bootstrap is strictly blocked (`403 bootstrap_local_only`) to prevent LAN attackers from spoofing forwarded headers during the first-run window. When running in Docker or behind a proxy, create the initial administrator via CLI:
+
+```bash
+# Using Docker Compose (recommended in container deployments):
+docker compose exec -e ADMIN_PASSWORD="YourSecurePassword123!" api node dist/cli/admin.js create <username>
+
+# Or from the host workspace (reads DATABASE_URL from .env):
+ADMIN_PASSWORD="YourSecurePassword123!" pnpm admin:create <username>
+```
+
+> **Requirements**:
+> * Password must be at least 10 characters long (environment variable `ADMIN_PASSWORD` is used; passwords are never passed as command-line arguments).
+> * Username must be 3–32 characters (`[a-zA-Z0-9_.-]`).
+
+Once created, log in at http://localhost:5173, then onboard your router under Settings.
 
 ### Test
 
@@ -463,7 +481,7 @@ pnpm --filter @miwifi-webui/api start
 
 ## Operational notes
 
-* **First-run bootstrap** creates the single administrator and then closes permanently (localhost-only; ADR 0003). Local recovery: `pnpm --filter @miwifi-webui/api admin:reset-password <username>` with `ADMIN_PASSWORD` in the environment.
+* **First-run bootstrap** creates the single administrator and then closes permanently (localhost-only; ADR 0003). In Docker / proxy deployments, create the account via `docker compose exec -e ADMIN_PASSWORD="..." api node dist/cli/admin.js create <username>` (or `ADMIN_PASSWORD="..." pnpm admin:create <username>`). Local password recovery: `docker compose exec -e ADMIN_PASSWORD="..." api node dist/cli/admin.js reset-password <username>` (or `ADMIN_PASSWORD="..." pnpm admin:reset-password <username>`).
 * **Router credentials** are sealed with AES-256-GCM under `APP_MASTER_KEY`; losing the key makes stored credentials unrecoverable.
 * **AI is disabled by default** and fully read-only when enabled; external providers always receive pseudonymized context (MAC/IP/names aliased), with the alias legend stored locally for readable findings.
 * **Retention** runs as a daily scheduled pass; see the table above for defaults.

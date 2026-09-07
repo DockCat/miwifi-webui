@@ -11,7 +11,9 @@
     "test": "tsx --test test/*.test.ts",
     "db:migrate": "tsx src/db/migrate.ts",
     "admin:create": "tsx src/cli/admin.ts create",
-    "admin:reset-password": "tsx src/cli/admin.ts reset-password"
+    "admin:reset-password": "tsx src/cli/admin.ts reset-password",
+    "admin:create:dist": "node dist/cli/admin.js create",
+    "admin:reset-password:dist": "node dist/cli/admin.js reset-password"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",

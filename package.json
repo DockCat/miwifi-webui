@@ -14,7 +14,9 @@
     "test": "pnpm -r test",
     "lint": "eslint .",
     "typecheck": "pnpm -r typecheck",
-    "db:migrate": "pnpm --filter @miwifi-webui/api db:migrate"
+    "db:migrate": "pnpm --filter @miwifi-webui/api db:migrate",
+    "admin:create": "pnpm --filter @miwifi-webui/api admin:create",
+    "admin:reset-password": "pnpm --filter @miwifi-webui/api admin:reset-password"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
