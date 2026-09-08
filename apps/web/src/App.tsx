@@ -158,7 +158,13 @@ export function App() {
           )}
           {route.page === 'network' && <NetworkView router={activeRouter} />}
           {route.page === 'events' && <EventsView router={activeRouter} />}
-          {route.page === 'investigations' && <InvestigationsView router={activeRouter} />}
+          {route.page === 'investigations' && (
+            <InvestigationsView
+              router={activeRouter}
+              sessionId={route.sessionId}
+              onOpenSession={(id) => navigate({ page: 'investigations', sessionId: id })}
+            />
+          )}
           {route.page === 'settings' && (
             <SettingsView
               router={activeRouter}

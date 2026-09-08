@@ -355,7 +355,9 @@ An **External AI Provider** sends investigation context outside the local applic
 
 External AI is disabled until explicitly configured.
 
-The administrator must control what data categories may leave the local environment.
+The administrator controls whether an external provider is enabled. Every
+external request aliases MAC addresses, IP addresses, and original device
+names; there is no per-category opt-out. The alias legend remains local.
 
 ## AI Data Minimization
 
@@ -381,6 +383,10 @@ Do not automatically send:
 * raw secret-bearing request URLs.
 
 MAC addresses, IP addresses, serials, and original device names should be treated as potentially sensitive network identifiers.
+
+The application never sends those raw network identifiers to an external
+provider. Tools omit serials, and the privacy layer aliases MACs, IPs, and
+device names before the first request and on replayed history.
 
 ## Retention
 

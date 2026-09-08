@@ -28,6 +28,9 @@ services:
 
   api:
     image: highwall777/miwifi-webui-api:latest
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: miwifi-webui-api
     restart: unless-stopped
     # Docker-level healthcheck mirrors the image's HEALTHCHECK.
@@ -63,6 +66,9 @@ services:
 
   web:
     image: highwall777/miwifi-webui-web:latest
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
     container_name: miwifi-webui-web
     restart: unless-stopped
     depends_on:

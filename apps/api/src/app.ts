@@ -112,7 +112,8 @@ export async function buildApp(
   registerInvestigationRoutes(app, {
     repository: new InvestigationRepository(pool),
     audit,
-    pool
+    pool,
+    scheduler
   });
 
   return app;

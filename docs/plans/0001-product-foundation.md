@@ -746,7 +746,10 @@ Sensitive identifiers such as:
 * serial;
 * raw device name
 
-should require an explicit policy/use need before external transmission.
+require an explicit policy/use need before external transmission. The current
+v1 implementation (Task 0012) applies the stricter rule: external providers
+always receive aliases for MACs, IPs, and raw device names, with no
+per-category opt-out; serials are omitted from the investigation tools.
 
 ## 34. AI history
 

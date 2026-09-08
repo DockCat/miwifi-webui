@@ -2,6 +2,10 @@
 
 Status: `DONE`
 
+Historical note: Task 0012 supersedes the older per-category egress wording
+below. External providers always receive aliases for MACs, IPs and device
+names; no names opt-out is supported.
+
 Task ID: `0007`
 
 Related plan: `docs/plans/0001-product-foundation.md` (Phase 7, sections 27-34)
@@ -22,9 +26,8 @@ controls for external providers, and the Investigations UI.
 * v1 tools are read-only — no mutation tools exist in the tool registry.
 * Tools have explicit input/output schemas, bounded time ranges and
   result counts; no credential fields; no unrestricted SQL.
-* External providers receive pseudonymized context by default (router_01,
-  device_01, …); MAC/IP/serial/raw names only when the corresponding data
-  category is explicitly enabled.
+* External providers receive pseudonymized context (router_01, device_01,
+  …); MAC/IP/serial/raw names are never sent as an egress opt-in.
 * Never transmitted: router password, stok, Wi-Fi password, master key,
   AI API key, secret-bearing URLs.
 * Investigation content retained ~30 days (retention job); audit records

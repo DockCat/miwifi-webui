@@ -36,6 +36,7 @@ describe('normalizeDevice', () => {
       downspeed: 1048576,
       upspeed: 524288,
       downloadTotal: 500000000,
+      downloadCounterAvailable: true,
       uploadTotal: 100000000,
       connectionType: 'wifi_5g'
     });
@@ -72,6 +73,7 @@ describe('normalizeDevice', () => {
       downspeed: 5000,
       upspeed: 2000,
       downloadTotal: 123456789,
+      downloadCounterAvailable: true,
       uploadTotal: 987654321,
       connectionType: 'unknown'
     });
@@ -315,4 +317,11 @@ describe('reconcilePresence', () => {
     assert.equal(deviceKey(undefined, '192.0.2.1'), 'ip:192.0.2.1');
     assert.equal(deviceKey(undefined, undefined), null);
   });
+});
+
+
+it('distinguishes missing download counters from measured zero', () => {
+  assert.equal(normalizeDevice({ mac: 'AA:BB:CC:DD:EE:01' })?.downloadCounterAvailable, false);
+  assert.equal(normalizeDevice({ mac: 'AA:BB:CC:DD:EE:01', download: 0 })?.downloadCounterAvailable, true);
+  assert.equal(normalizeDevice({ mac: 'AA:BB:CC:DD:EE:01', download: -1 })?.downloadCounterAvailable, false);
 });

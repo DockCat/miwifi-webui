@@ -182,7 +182,11 @@ export class PollingScheduler {
               online: sDev.online || (existing?.online ?? true),
               downspeed: sDev.downspeed || (existing?.downspeed ?? 0),
               upspeed: sDev.upspeed || (existing?.upspeed ?? 0),
-              downloadTotal: sDev.downloadTotal || (existing?.downloadTotal ?? 0),
+              downloadTotal: sDev.downloadCounterAvailable === true
+                ? sDev.downloadTotal
+                : (existing?.downloadTotal ?? 0),
+              downloadCounterAvailable:
+                sDev.downloadCounterAvailable ?? existing?.downloadCounterAvailable,
               uploadTotal: sDev.uploadTotal || (existing?.uploadTotal ?? 0),
               connectionType:
                 sDev.connectionType !== 'unknown'
@@ -308,7 +312,11 @@ export class PollingScheduler {
             (device.ip ? prevMap?.get(`ip:${device.ip}`) : undefined);
           const enriched: NormalizedDevice = {
             ...device,
-            downloadTotal: device.downloadTotal || prev?.downloadTotal || 0,
+            downloadTotal: device.downloadCounterAvailable === true
+              ? device.downloadTotal
+              : (prev?.downloadTotal ?? 0),
+            downloadCounterAvailable:
+              device.downloadCounterAvailable ?? prev?.downloadCounterAvailable,
             uploadTotal: device.uploadTotal || prev?.uploadTotal || 0,
             downspeed: device.downspeed || prev?.downspeed || 0,
             upspeed: device.upspeed || prev?.upspeed || 0
@@ -349,11 +357,35 @@ export class PollingScheduler {
       try {
         const adapter = await this.adapterFor(router);
         if (!adapter) continue;
-        const response = await adapter.call('status');
-        const status = normalizeRouterStatus(response.body);
+        let status: ReturnType<typeof normalizeRouterStatus> | null = null;
+        try {
+          const response = await adapter.call('status');
+          status = normalizeRouterStatus(response.body);
+        } catch {
+          // A health endpoint outage must not discard a usable inventory
+          // sample below.
+        }
+        // Status is the canonical health sample. Some firmware exposes no
+        // client counters there, so supplement it with the read-only device
+        // inventory endpoint when available. Without this sample there is no
+        // honest way to answer a historical per-device traffic question.
+        let devices = status?.devices;
+        const needsInventory = !devices || devices.length === 0 ||
+          devices.some((device) => device.downloadCounterAvailable !== true);
+        if (needsInventory) {
+          try {
+            const inventory = await adapter.call('deviceList');
+            const normalized = normalizeDeviceList(inventory.body);
+            if (normalized.length > 0) devices = normalized;
+          } catch {
+            // Keep the health sample; the traffic tool will report unavailable.
+          }
+        }
+        if (!status && (!devices || devices.length === 0)) continue;
         await this.observabilityRepository.insertTelemetrySnapshot(router.id, {
           capturedAt: new Date().toISOString(),
-          ...status
+          ...(status ?? {}),
+          ...(devices && devices.length > 0 ? { devices } : {})
         });
       } catch {
         // Missed sample; the next interval retries. No synthetic rows.

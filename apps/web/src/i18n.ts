@@ -170,7 +170,15 @@ const messages = {
   'investigations.original': 'Actual value',
     'investigations.disabled_hint': 'AI is disabled. Configure a provider (see .env.example).',
     'investigations.finding_failed': 'The investigation failed. Check provider availability and try again.',
-    'investigations.placeholder': 'Why did the TV lose connectivity at 14:32?'
+    'investigations.placeholder': 'Why did the TV lose connectivity at 14:32?',
+    'investigations.sessions': 'Past sessions',
+    'investigations.tool_results': 'Inspect tool query results',
+    'investigations.session_rotated': 'The 48,000-byte context budget was reached. A new session has started without prior context; the old session remains in history.',
+    'investigations.new_session': 'New session',
+    'investigations.close_session': 'End session',
+    'investigations.session_closed': 'This session has ended. Start a new session to continue.',
+    'investigations.empty_sessions': 'No sessions yet.',
+    'investigations.turns': 'turns'
   },
   'zh-CN': {
     'app.title': 'miwifi-webui',
@@ -288,7 +296,15 @@ const messages = {
   'investigations.original': '实际值',
     'investigations.disabled_hint': 'AI 未启用。请先配置 provider（见 .env.example）。',
     'investigations.finding_failed': '调查失败。请检查 provider 是否可用后重试。',
-    'investigations.placeholder': '为什么电视在 14:32 失去连接？'
+    'investigations.placeholder': '为什么电视在 14:32 失去连接？',
+    'investigations.sessions': '历史对话',
+    'investigations.tool_results': '查看工具查询结果',
+    'investigations.session_rotated': '上下文已达到 48,000 字节预算，已开始新会话。旧会话保留在历史中；新会话不继承旧上下文。',
+    'investigations.new_session': '新对话',
+    'investigations.close_session': '结束对话',
+    'investigations.session_closed': '该对话已结束。开始新对话以继续。',
+    'investigations.empty_sessions': '尚无历史对话。',
+    'investigations.turns': '轮'
   }
 } as const;
 

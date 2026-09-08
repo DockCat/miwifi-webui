@@ -18,13 +18,24 @@ import {
   INVESTIGATION_TOOLS,
   runTool,
   auditHistoryTool,
+  dashboardSummaryTool,
   deviceStateTool,
   evidenceLookupTool,
   presenceHistoryTool,
   routerStatusTool,
+  telemetryTimeseriesTool,
+  deviceTrafficUsageTool,
   type ToolContext
 } from '../src/ai/tools.js';
-import { DISABLED_PROVIDER, loadProviderConfig, runInvestigation, extractProviderErrorMessage } from '../src/ai/provider.js';
+import {
+  DISABLED_PROVIDER,
+  loadProviderConfig,
+  runInvestigation,
+  extractProviderErrorMessage,
+  systemPromptFor,
+  requiredToolFor
+} from '../src/ai/provider.js';
+import { historyFromInvestigations } from '../src/routes/investigations.js';
 import process from 'node:process';
 
 describe('provider default state', () => {
@@ -58,12 +69,13 @@ describe('provider default state', () => {
     delete process.env.AI_PROVIDER_MODEL;
   });
 
-  it('external mode pseudonymizes by default and has no opt-out switches', () => {
+  it('external mode pseudonymizes by default and legacy switches are ignored', () => {
     process.env.AI_PROVIDER_MODE = 'external';
     process.env.AI_PROVIDER_BASE_URL = 'https://api.example.com/v1';
     process.env.AI_PROVIDER_MODEL = 'gpt-test';
     // Even if legacy egress switches linger in some environment, they are
-    // ignored: external mode is always fully pseudonymized.
+    // ignored: external mode is fully pseudonymized without the explicit
+    // names opt-in.
     process.env.AI_EGRESS_ALLOW_MAC = 'true';
     process.env.AI_EGRESS_ALLOW_IP = 'true';
     process.env.AI_EGRESS_ALLOW_NAMES = 'true';
@@ -79,10 +91,33 @@ describe('provider default state', () => {
     delete process.env.AI_EGRESS_ALLOW_IP;
     delete process.env.AI_EGRESS_ALLOW_NAMES;
   });
+
+  it('external mode ignores the removed names opt-out', () => {
+    process.env.AI_PROVIDER_MODE = 'external';
+    process.env.AI_PROVIDER_BASE_URL = 'https://api.example.com/v1';
+    process.env.AI_PROVIDER_MODEL = 'gpt-test';
+
+    // This legacy variable must not weaken the egress boundary.
+    process.env.AI_EXTERNAL_SEND_NAMES = 'true';
+    let config = loadProviderConfig();
+    assert.equal(config.privacy.allowNames, false);
+    assert.equal(config.privacy.allowMac, false, 'MAC never opt-out-able');
+    assert.equal(config.privacy.allowIp, false, 'IP never opt-out-able');
+
+    // Any other value keeps the default: everything aliased.
+    process.env.AI_EXTERNAL_SEND_NAMES = 'false';
+    config = loadProviderConfig();
+    assert.equal(config.privacy.allowNames, false);
+
+    delete process.env.AI_EXTERNAL_SEND_NAMES;
+    delete process.env.AI_PROVIDER_MODE;
+    delete process.env.AI_PROVIDER_BASE_URL;
+    delete process.env.AI_PROVIDER_MODEL;
+  });
 });
 
 describe('tool registry', () => {
-  it('contains exactly the five read-only tools', () => {
+  it('contains exactly the eight read-only tools', () => {
     assert.deepEqual(
       INVESTIGATION_TOOLS.map((tool) => tool.name),
       [
@@ -90,7 +125,10 @@ describe('tool registry', () => {
         'device_state',
         'presence_history',
         'audit_history',
-        'evidence_lookup'
+        'telemetry_timeseries',
+        'dashboard_summary',
+        'evidence_lookup',
+        'device_traffic_usage'
       ]
     );
     // No mutation tool can exist in the registry.
@@ -121,6 +159,22 @@ describe('tool registry', () => {
       evidenceLookupTool.validate({ evidenceKind: 'device', evidenceId: '' }),
       null
     );
+  });
+
+  it('telemetry_timeseries validates range and defaults to 1d', () => {
+    assert.deepEqual(telemetryTimeseriesTool.validate({}), { range: '1d' });
+    assert.deepEqual(telemetryTimeseriesTool.validate({ range: '1w' }), { range: '1w' });
+    assert.deepEqual(telemetryTimeseriesTool.validate({ range: '1m' }), { range: '1m' });
+    assert.equal(telemetryTimeseriesTool.validate({ range: '7d' }), null);
+    assert.equal(telemetryTimeseriesTool.validate({ range: 'all' }), null);
+    assert.equal(telemetryTimeseriesTool.validate('1d'), null);
+  });
+
+  it('dashboard_summary accepts empty input only', () => {
+    assert.ok(dashboardSummaryTool.validate({}));
+    assert.ok(dashboardSummaryTool.validate(undefined));
+    assert.ok(dashboardSummaryTool.validate(null));
+    assert.equal(dashboardSummaryTool.validate({ range: '1d' }), null);
   });
 
   it('runTool returns null for unknown tool names (no escape hatch)', () => {
@@ -389,6 +443,239 @@ describe('alias legend in investigation results', () => {
   });
 });
 
+describe('alias seeding across session turns', () => {
+  it('seedFromLegend restores keys so the same original keeps its alias', () => {
+    const first = new AliasMap();
+    // Turn 1 aliased a MAC, an IP, and a name.
+    first.aliasFor('device', 'AA:BB:CC:DD:EE:10');
+    first.aliasFor('device', 'ip:192.168.31.50');
+    first.aliasFor('device', 'name:living-room-tv');
+    const legend = first.legend();
+
+    const second = new AliasMap();
+    second.seedFromLegend(legend);
+    // The same raw values map to the SAME aliases on the next turn.
+    assert.equal(second.aliasFor('device', 'aa:bb:cc:dd:ee:10'), legend[0]!.alias);
+    assert.equal(second.aliasFor('device', 'ip:192.168.31.50'), 'device_02');
+    assert.equal(second.aliasFor('device', 'name:living-room-tv'), 'device_03');
+    // New devices continue after the highest seeded number — no collision.
+    assert.equal(second.aliasFor('device', 'AA:BB:CC:DD:EE:99'), 'device_04');
+  });
+
+  it('registerDevice reuses a legacy identifier alias', () => {
+    const aliases = new AliasMap();
+    aliases.seedFromLegend([{ alias: 'device_07', original: 'AA:BB:CC:DD:EE:10' }]);
+    aliases.registerDevice({ id: 'synthetic-device-id', mac: 'aa:bb:cc:dd:ee:10', name: 'TV' });
+    assert.equal(aliases.aliasFor('device', 'synthetic-device-id'), 'device_07');
+    assert.equal(aliases.aliasFor('device', 'name:TV'), 'device_07');
+  });
+
+  it('does not merge two devices that share a name', () => {
+    const aliases = new AliasMap();
+    aliases.registerDevice({ id: 'device-a', mac: 'AA:BB:CC:DD:EE:20', name: 'iPhone' });
+    aliases.registerDevice({ id: 'device-b', mac: 'AA:BB:CC:DD:EE:21', name: 'iPhone' });
+    assert.notEqual(
+      aliases.aliasFor('device', 'device-a'),
+      aliases.aliasFor('device', 'device-b')
+    );
+  });
+
+  it('seedFromLegend is idempotent and order-independent', () => {
+    const first = new AliasMap();
+    first.aliasFor('device', 'AA:BB:CC:DD:EE:10');
+    first.aliasFor('device', 'AA:BB:CC:DD:EE:11');
+    const legend = first.legend();
+
+    const seeded = new AliasMap();
+    seeded.seedFromLegend([...legend].reverse());
+    seeded.seedFromLegend(legend); // double-seeding must not grow or renumber
+    assert.equal(seeded.aliasFor('device', 'AA:BB:CC:DD:EE:11'), 'device_02');
+    assert.equal(seeded.aliasFor('device', 'AA:BB:CC:DD:EE:12'), 'device_03');
+  });
+
+  it('seedFromLegend ignores malformed legend entries', () => {
+    const seeded = new AliasMap();
+    seeded.seedFromLegend([
+      { alias: 'device_01', original: 'AA:BB:CC:DD:EE:10' },
+      { alias: 'not-an-alias', original: 'x' },
+      { alias: 'device_02', original: '' },
+      { alias: 'device_03', original: 42 as unknown as string }
+    ]);
+    assert.equal(seeded.aliasFor('device', 'AA:BB:CC:DD:EE:10'), 'device_01');
+    // Counter resumed past device_01; junk did not allocate numbers.
+    assert.equal(seeded.aliasFor('device', 'AA:BB:CC:DD:EE:12'), 'device_02');
+  });
+});
+
+describe('locale-aware system prompt', () => {
+  it('directs Simplified Chinese for zh-CN and English for en', () => {
+    const zh = systemPromptFor('zh-CN');
+    const en = systemPromptFor('en');
+    assert.ok(zh.includes('Simplified Chinese'), 'zh prompt carries the directive');
+    assert.ok(en.includes('Always respond in English.'));
+    // Shared read-only investigator core + data-views catalog in both.
+    for (const prompt of [zh, en]) {
+      assert.ok(prompt.includes('read-only network investigation assistant'));
+      assert.ok(prompt.includes('Tools are strictly read-only'));
+      assert.ok(prompt.includes('telemetry_timeseries'), 'catalog mentions the chart tool');
+      assert.ok(prompt.includes('dashboard_summary'), 'catalog mentions the summary tool');
+    }
+  });
+});
+
+describe('historyFromInvestigations', () => {
+  const completed = (question: string, finding: string) => ({
+    status: 'completed',
+    question,
+    finding
+  });
+
+  it('keeps the last exchanges within bounds, oldest first', () => {
+    const turns = [
+      completed('q1', 'f1'),
+      { status: 'failed', question: 'q2', finding: 'provider HTTP 500' },
+      { status: 'running', question: 'q3', finding: null },
+      completed('q4', 'f4')
+    ];
+    const history = historyFromInvestigations(turns);
+    assert.equal(history.length, 2, 'failed/running skipped');
+    assert.deepEqual(history, [
+      { question: 'q1', finding: 'f1' },
+      { question: 'q4', finding: 'f4' }
+    ]);
+  });
+
+  it('keeps all exchanges without silently dropping history', () => {
+    const turns = Array.from({ length: 8 }, (_, i) => completed(`q${i}`, `f${i}`));
+    const history = historyFromInvestigations(turns);
+    assert.equal(history.length, 8);
+    assert.deepEqual(
+      history.map((t) => t.question),
+      ['q0', 'q1', 'q2', 'q3', 'q4', 'q5', 'q6', 'q7'],
+      'all history kept'
+    );
+  });
+});
+
+describe('conversation history reaches the provider', () => {
+  it('runInvestigation replays history and the locale directive', async () => {
+    const bodies: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      bodies.push(String(init?.body ?? ''));
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: 'finding' } }] }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+    try {
+      await runInvestigation(
+        {
+          mode: 'local',
+          baseUrl: 'http://provider.test/v1',
+          apiKey: null,
+          model: 'test-model',
+          privacy: LOCAL_PRIVACY
+        },
+        {
+          pool: { query: async () => ({ rows: [] }) } as never,
+          routerId: 'router-1'
+        },
+        'and the busiest device?',
+        {
+          locale: 'zh-CN',
+          history: [
+            { question: 'what is the traffic?', finding: ' WAN used 3 GB' }
+          ]
+        }
+      );
+      const firstRequest = JSON.parse(bodies[0]!) as {
+        messages: Array<{ role: string; content: string }>;
+      };
+      const roles = firstRequest.messages.map((m) => m.role);
+      assert.deepEqual(roles, ['system', 'user', 'assistant', 'user'], 'history replayed');
+      assert.ok(firstRequest.messages[0]!.content.includes('Simplified Chinese'));
+      assert.ok(
+        firstRequest.messages.some((m) => m.role === 'assistant' && m.content === ' WAN used 3 GB'),
+        'prior finding replayed as assistant turn'
+      );
+      assert.ok(
+        firstRequest.messages.some((m) => m.role === 'user' && m.content === 'and the busiest device?'),
+        'current question last'
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+describe('deterministic tool choice for traffic questions', () => {
+  it('requires counter-delta lookup for period winner questions', () => {
+    assert.equal(requiredToolFor('Who used the most download traffic in the past 24 hours?'), 'device_traffic_usage');
+    assert.equal(requiredToolFor('過去24小時下載流量總和最多的是哪一個裝置？'), 'device_traffic_usage');
+    assert.equal(requiredToolFor('可以知道 device_06 在哪個時段下載流量最高嗎？'), 'device_traffic_usage');
+    assert.equal(requiredToolFor('What is the current download speed?'), null);
+  });
+
+  it('sends a required function choice on the first provider request', async () => {
+    const bodies: string[] = [];
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      bodies.push(String(init?.body ?? ''));
+      return new Response(JSON.stringify({ choices: [{ message: calls++ === 0
+        ? { role: 'assistant', content: '', tool_calls: [{ id: 'traffic', type: 'function', function: { name: 'device_traffic_usage', arguments: '{}' } }] }
+        : { role: 'assistant', content: 'not enough samples' } }] }));
+    }) as typeof fetch;
+    try {
+      await runInvestigation(
+        { mode: 'local', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
+        { pool: { query: async () => ({ rows: [] }) } as never, routerId: 'router-1' },
+        '過去24小時下載流量總和最多的是哪一個裝置？'
+      );
+      const body = JSON.parse(bodies[0]!) as { tool_choice?: { function?: { name?: string } } };
+      assert.equal(body.tool_choice?.function?.name, 'device_traffic_usage');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('returns the peak interval evidence as separate, readable references', async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: calls++ === 0
+      ? { role: 'assistant', content: '', tool_calls: [{ id: 'traffic', type: 'function', function: { name: 'device_traffic_usage', arguments: '{}' } }] }
+      : { role: 'assistant', content: 'device_01 peak observed' } }] }))) as typeof fetch;
+    let queryCount = 0;
+    const pool = { query: async (sql: string) => {
+      queryCount++;
+      if (sql.includes('FROM device WHERE router_id')) return { rows: [] };
+      return { rows: [{
+        identity: 'AA:BB:CC:DD:EE:01', downloadBytes: '10', sampleCount: 2,
+        intervalCount: 1, resets: 0, missingCounters: 0, legacySamples: 0,
+        firstSampleAt: new Date('2026-09-08T00:00:00Z'),
+        lastSampleAt: new Date('2026-09-08T00:01:00Z'), maxGapSeconds: 60,
+        firstEvidenceId: '101', lastEvidenceId: '102', observedDeviceCount: 1,
+        peakStartAt: new Date('2026-09-08T00:00:00Z'),
+        peakEndAt: new Date('2026-09-08T00:01:00Z'), peakDownloadBytes: '10',
+        peakStartEvidenceId: '101', peakEndEvidenceId: '102'
+      }] };
+    } } as never;
+    try {
+      const result = await runInvestigation(
+        { mode: 'external', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
+        { pool, routerId: 'router-1' },
+        'device_01 在哪個時段下載流量最高嗎？'
+      );
+      assert.equal(queryCount, 2, 'inventory and fixed traffic query');
+      assert.deepEqual(result.evidence.map((link) => link.evidenceId), ['101', '102']);
+      assert.ok(result.finding.includes('- telemetry_snapshot #101'));
+      assert.ok(result.finding.includes('- telemetry_snapshot #102'));
+      assert.ok(result.finding.includes('peak interval end'));
+    } finally { globalThis.fetch = originalFetch; }
+  });
+});
+
 describe('extractProviderErrorMessage', () => {
   it('extracts error.message from OpenAI-style JSON', async () => {
     const response = new Response(
@@ -426,5 +713,80 @@ describe('extractProviderErrorMessage', () => {
     const response = new Response('', { status: 500 });
     const msg = await extractProviderErrorMessage(response);
     assert.equal(msg, '');
+  });
+});
+
+
+describe('investigation privacy and transcript regressions', () => {
+  const config = { mode: 'external' as const, baseUrl: 'http://provider.test/v1', apiKey: null,
+    model: 'test', privacy: LOCAL_PRIVACY }; // Caller cannot bypass external policy.
+  const ctx = { routerId: 'router-1', pool: { query: async () => ({ rows: [
+    { id: 'd-1', name: 'SEN[1]TINEL-TV', mac: 'AA:BB:CC:DD:EE:FF', ip: 'fe80::1234' }
+  ] }) } as never };
+
+  it('scrubs names before the first request and replays full tool messages', async () => {
+    const bodies: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: { body?: string }) => {
+      bodies.push(JSON.parse(init!.body!));
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'device_01 observed' } }] }));
+    }) as typeof fetch;
+    try {
+      const result = await runInvestigation(config, ctx,
+        'Check SEN[1]TINEL-TV at fe80::1234 password=SENTINEL-SECRET', {
+          history: [{ question: 'old', finding: 'answer', transcript: [
+            { role: 'user', content: 'SEN[1]TINEL-TV' },
+            { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'device_state', arguments: '{}' } }] },
+            { role: 'tool', tool_call_id: 'c1', content: '{"observed":123}' },
+            { role: 'assistant', content: 'answer' }
+          ] }]
+        });
+      const request = JSON.stringify(bodies);
+      for (const secret of ['SEN[1]TINEL-TV', 'fe80::1234', 'SENTINEL-SECRET', 'AA:BB:CC:DD:EE:FF']) assert.ok(!request.includes(secret), secret);
+      assert.ok(request.includes('observed'));
+      assert.deepEqual(bodies[0]!.messages.map((m) => m.role), ['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
+      assert.deepEqual(result.transcript.map((m) => m.role), ['user', 'assistant']);
+      assert.ok(result.aliasLegend.some((e) => e.original === 'name:SEN[1]TINEL-TV'));
+    } finally { globalThis.fetch = original; }
+  });
+
+  it('only records evidence after a successful lookup and persists tool output', async () => {
+    const original = globalThis.fetch;
+    let n = 0;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: ++n === 1
+      ? { role: 'assistant', content: '', tool_calls: [
+        { id: 'c1', type: 'function', function: { name: 'evidence_lookup', arguments: '{"evidenceKind":"device","evidenceId":"missing"}' } },
+        { id: 'c2', type: 'function', function: { name: 'evidence_lookup', arguments: '{"evidenceKind":"bogus","evidenceId":"invented"}' } }
+      ] } : { role: 'assistant', content: 'No evidence available' } }] }))) as typeof fetch;
+    try {
+      const result = await runInvestigation(config, { routerId: 'r', pool: { query: async () => ({ rows: [] }) } as never }, 'check evidence');
+      assert.deepEqual(result.evidence, []);
+      assert.equal(result.transcript.filter((m) => m.role === 'tool').length, 2);
+    } finally { globalThis.fetch = original; }
+  });
+
+  it('never propagates provider error bodies', async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('password=SENTINEL-PROVIDER-SECRET', { status: 400 })) as typeof fetch;
+    try { await assert.rejects(runInvestigation(config, ctx, 'check device'), { message: 'provider HTTP 400' }); }
+    finally { globalThis.fetch = original; }
+  });
+
+  it('removes arbitrary telemetry fields before stringifying evidence', async () => {
+    const toolCtx = { ...ctx, privacy: LOCAL_PRIVACY, aliases: new AliasMap(), pool: {
+      query: async () => ({ rows: [{ id: '1', capturedAt: new Date(), payload: {
+        cpuLoad: 5, password: 'SENTINEL-SECRET', hardwareInfo: { sn: 'SENTINEL-SERIAL' }, arbitrary: 'SENTINEL-NAME'
+      } }] })
+    } as never };
+    const status = await routerStatusTool.execute(toolCtx, { limit: 1 });
+    const evidence = await evidenceLookupTool.execute(toolCtx, { evidenceKind: 'telemetry_snapshot', evidenceId: '1' });
+    assert.ok(!JSON.stringify([status, evidence]).includes('SENTINEL'));
+    assert.ok(JSON.stringify(evidence).includes('cpuLoad'));
+  });
+
+  it('bounds traffic tool queries', () => {
+    for (const hours of [0, 169, 1.5, '24', null]) assert.equal(deviceTrafficUsageTool.validate({ hours }), null);
+    assert.equal(deviceTrafficUsageTool.validate({ limit: 51 }), null);
+    assert.deepEqual(deviceTrafficUsageTool.validate({}), { hours: 24, limit: 10 });
   });
 });

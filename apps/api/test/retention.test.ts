@@ -110,7 +110,7 @@ describe('retention purges', () => {
     const results = await retention.purgeAll(DEFAULT_RETENTION, fixedClock);
     assert.deepEqual(
       results.map((r) => r.category),
-      ['telemetry', 'presence', 'audit', 'investigation']
+      ['telemetry', 'presence', 'audit', 'investigation', 'investigation_session']
     );
   });
 });

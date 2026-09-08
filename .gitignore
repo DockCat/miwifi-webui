@@ -20,3 +20,11 @@ coverage/
 
 # OS / editor
 .DS_Store
+.claude/
+
+# Local compose / developer overrides
+compose-dev.yaml
+compose*.dev.yaml
+compose.override.yaml
+*-dev.yaml
+*.local.yaml

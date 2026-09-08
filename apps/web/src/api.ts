@@ -163,18 +163,45 @@ export const api = {
   investigation: (id: string) =>
     request<{
       investigation: InvestigationDetail;
-      evidence: { id: string; kind: string; evidenceId: string }[];
+      evidence: { id: string; kind: string; evidenceId: string; note?: string | null }[];
     }>(`/api/investigations/${id}`),
 
-  createInvestigation: (routerId: string, question: string) =>
-    request<{ investigationId: string; status: string; finding: string }>(
+  listSessions: () =>
+    request<{ sessions: SessionSummary[] }>('/api/investigations/sessions'),
+
+  investigationSession: (id: string) =>
+    request<{ session: SessionDetail; investigations: SessionTurn[] }>(
+      `/api/investigations/sessions/${id}`
+    ),
+
+  closeSession: (id: string) =>
+    request<{ sessionId: string; status: string }>(
+      `/api/investigations/sessions/${id}/close`,
+      { method: 'POST' }
+    ),
+
+  createInvestigation: (
+    routerId: string,
+    question: string,
+    opts?: { sessionId?: string; locale?: 'en' | 'zh-CN' }
+  ) =>
+    request<{ investigationId: string; sessionId: string; rotatedFrom?: string | null; status: string; finding: string }>(
       '/api/investigations',
-      { method: 'POST', body: JSON.stringify({ routerId, question }) }
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          routerId,
+          question,
+          sessionId: opts?.sessionId,
+          locale: opts?.locale
+        })
+      }
     )
 };
 
 export interface InvestigationSummary {
   id: string;
+  sessionId: string | null;
   status: 'running' | 'completed' | 'failed';
   question: string;
   finding: string | null;
@@ -186,5 +213,38 @@ export interface InvestigationSummary {
 export interface InvestigationDetail extends InvestigationSummary {
   model: string | null;
   /** alias -> original mapping used when the provider saw pseudonymized data. */
+  transcript?: { role: string; content: string; tool_call_id?: string }[];
   aliasLegend: { alias: string; original: string }[];
+}
+
+/** Sidebar entry for an investigation session. */
+export interface SessionSummary {
+  id: string;
+  title: string;
+  status: 'open' | 'closed';
+  turnCount: number;
+  lastQuestion: string | null;
+  createdAt: string;
+  lastActivityAt: string;
+  closedAt: string | null;
+}
+
+export interface SessionDetail {
+  id: string;
+  title: string;
+  status: 'open' | 'closed';
+  createdAt: string;
+  lastActivityAt: string;
+  closedAt: string | null;
+}
+
+/** One question/finding exchange inside a session. */
+export interface SessionTurn {
+  id: string;
+  status: 'running' | 'completed' | 'failed';
+  question: string;
+  finding: string | null;
+  provider: string;
+  createdAt: string;
+  completedAt: string | null;
 }

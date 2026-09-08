@@ -183,6 +183,10 @@ Current documents:
 * [0006 — Limited Administration](tasks/0006-mutations.md)
 * [0007 — AI Investigation](tasks/0007-ai-investigation.md)
 * [0008 — Hardening](tasks/0008-hardening.md)
+* [0009 — UniFi-style Dashboard](tasks/0009-unifi-dashboard.md)
+* [0010 — Customizable Dashboard Grid](tasks/0010-customizable-dashboard-grid.md)
+* [0011 — Investigation Sessions, Locale-aware AI, Extended Read Tools](tasks/0011-investigation-sessions.md)
+* [0012 — Investigation Context, Evidence and Privacy](tasks/0012-investigation-correctness.md)
 
 ### Operations
 

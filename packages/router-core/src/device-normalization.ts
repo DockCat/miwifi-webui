@@ -17,6 +17,8 @@ export interface NormalizedDevice {
   readonly downspeed: number;
   readonly upspeed: number;
   readonly downloadTotal: number;
+  /** False distinguishes an absent counter from a measured zero. */
+  readonly downloadCounterAvailable?: boolean;
   readonly uploadTotal: number;
   readonly connectionType: DeviceConnectionType;
 }
@@ -147,6 +149,8 @@ export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null 
     downspeed,
     upspeed,
     downloadTotal,
+    downloadCounterAvailable: [stats?.['download'], entry.download, entry.downloadTotal]
+      .some((value) => { const n = asNumber(value); return n !== undefined && n >= 0; }),
     uploadTotal,
     connectionType
   };

@@ -62,6 +62,24 @@ export class RetentionRepository {
     return { category: 'investigation', purged: result.rowCount ?? 0 };
   }
 
+  /**
+   * Sessions whose last activity predates the window are deleted whole;
+   * remaining turns + evidence cascade (Task 0011). Turns already purged
+   * individually by purgeInvestigations leave empty shells — those are
+   * removed here too via the same last-activity cutoff.
+   */
+  async purgeInvestigationSessions(
+    policy: RetentionPolicy,
+    clock?: RetentionClock
+  ): Promise<PurgeResult> {
+    const cutoff = retentionCutoff(policy, 'investigationDays', clock);
+    const result = await this.pool.query(
+      'DELETE FROM investigation_session WHERE last_activity_at < $1',
+      [cutoff]
+    );
+    return { category: 'investigation_session', purged: result.rowCount ?? 0 };
+  }
+
   async purgeAll(
     policy: RetentionPolicy,
     clock?: RetentionClock
@@ -70,7 +88,8 @@ export class RetentionRepository {
       await this.purgeTelemetry(policy, clock),
       await this.purgePresence(policy, clock),
       await this.purgeAudit(policy, clock),
-      await this.purgeInvestigations(policy, clock)
+      await this.purgeInvestigations(policy, clock),
+      await this.purgeInvestigationSessions(policy, clock)
     ];
   }
 }
