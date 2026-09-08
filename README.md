@@ -20,6 +20,12 @@ Inspired by the operational experience of modern network management platforms (s
 - 🌐 **Capability-Driven Compatibility**: No brittle model whitelists. Automatically probes router endpoints and adapts gracefully (`SUPPORTED`, `PARTIAL`, `UNKNOWN`, `INCOMPATIBLE`).
 - 🇨🇳 / 🇬🇧 **Bilingual Interface**: Built-in support for Simplified Chinese (`zh-CN`) and English (`en`), with automatic browser locale detection.
 
+## Preview
+
+![miwifi-webui dashboard](docs/media/miwifi-webui-dashboard.png)
+
+[Watch the 18-second product tour](docs/media/miwifi-webui-overview.mp4)
+
 ---
 
 ## ⚡ Quick Start
