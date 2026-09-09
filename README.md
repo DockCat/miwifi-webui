@@ -34,39 +34,88 @@ You can run `miwifi-webui` in minutes using **Docker Compose** (recommended for 
 
 ### Method 1: Docker Compose (Recommended)
 
-#### 1. Clone the repository
+#### 1. Prepare `compose.yaml`
 
-```bash
-git clone https://github.com/DockCat/miwifi-webui.git
-cd miwifi-webui
+Create a file named `compose.yaml` (or clone the repository):
+
+```yaml
+name: miwifi-webui
+
+services:
+  postgres:
+    image: postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73
+    container_name: miwifi-webui-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-miwifi}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miwifi-secret}
+      POSTGRES_DB: ${POSTGRES_DB:-miwifi}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-miwifi} -d ${POSTGRES_DB:-miwifi}" ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  api:
+    image: highwall777/miwifi-webui-api:latest
+    container_name: miwifi-webui-api
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-miwifi}:${POSTGRES_PASSWORD:-miwifi-secret}@postgres:5432/${POSTGRES_DB:-miwifi}
+      APP_MASTER_KEY: ${APP_MASTER_KEY:-c29tZS1kZWZhdWx0LTMyLWJ5dGUtbWFzdGVyLWtleSE=}
+      API_PORT: 3001
+      API_HOST: 0.0.0.0
+      AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-}
+      AI_PROVIDER_BASE_URL: ${AI_PROVIDER_BASE_URL:-}
+      AI_PROVIDER_MODEL: ${AI_PROVIDER_MODEL:-}
+      AI_PROVIDER_API_KEY: ${AI_PROVIDER_API_KEY:-}
+      RETENTION_TELEMETRY_DAYS: ${RETENTION_TELEMETRY_DAYS:-90}
+      RETENTION_PRESENCE_DAYS: ${RETENTION_PRESENCE_DAYS:-365}
+      RETENTION_AUDIT_DAYS: ${RETENTION_AUDIT_DAYS:-365}
+      RETENTION_INVESTIGATION_DAYS: ${RETENTION_INVESTIGATION_DAYS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-3001}:3001"
+
+  web:
+    image: highwall777/miwifi-webui-web:latest
+    container_name: miwifi-webui-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${WEB_PORT:-5173}:8080"
+
+volumes:
+  postgres-data:
 ```
 
-#### 2. Configure Environment
+#### 2. Start the Service
 
-Copy `.env.example` to `.env` and generate an application master key:
-
-```bash
-cp .env.example .env
-
-# Generate a 32-byte base64 master key for encrypting router credentials:
-openssl rand -base64 32
-```
-
-Open `.env` in your editor:
-- Set `APP_MASTER_KEY` to the generated base64 string.
-- Set a strong `POSTGRES_PASSWORD`.
-
-#### 3. Start the Stack
+Directly start the stack:
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-This starts PostgreSQL, the Fastify API backend, and the Web UI frontend.
+#### 3. Create Initial Administrator Account
 
-#### 4. Create Initial Administrator
-
-For security (ADR 0003), first-run bootstrap creates a single administrator and then locks permanently. In container deployments, create the admin account via CLI:
+For security, first-run bootstrap creates an administrator account. Run:
 
 ```bash
 docker compose exec -e ADMIN_PASSWORD="YourSecurePassword123!" api node dist/cli/admin.js create admin
@@ -76,13 +125,36 @@ docker compose exec -e ADMIN_PASSWORD="YourSecurePassword123!" api node dist/cli
 > - `ADMIN_PASSWORD` must be at least 10 characters long.
 > - Username must be 3–32 characters (`[a-zA-Z0-9_.-]`).
 
-#### 5. Log in and Onboard Your Router
+#### 4. Access Web UI and Log In
 
-1. Open **http://localhost** (or the port specified in `WEB_PORT`) in your browser.
-2. Log in with your newly created admin credentials.
-3. Navigate to **Settings** -> **Router Configuration**.
-4. Enter your Xiaomi router's IP address (e.g. `192.168.31.1`) and your router admin password.
-5. Click **Probe & Save**. The backend will verify compatibility, encrypt credentials at rest, and begin background telemetry polling!
+Open **http://localhost:5173** in your browser and log in with your newly created admin credentials.
+
+#### 5. Onboard Your Router
+
+On first use, you need to set up/create your Xiaomi router:
+1. Navigate to **Settings** -> **Router Configuration**.
+2. Enter your **Router IP** (e.g. `192.168.31.1`).
+3. Set **Username** to `admin` (or fill in `admin`).
+4. Enter the **Password** used when logging into `https://miwifi.com` (your router web admin password).
+5. Click **Probe & Save**. The backend will verify compatibility, encrypt credentials at rest, and begin background telemetry polling.
+
+#### 6. AI Investigation Feature Setup (Optional)
+
+If you need the **AI Investigation** feature, configure the following environment variables in your environment or `.env` file before running `docker compose up -d`:
+
+- `AI_PROVIDER_MODE`: Set to `external` (cloud LLMs) or `local` (self-hosted Ollama/vLLM).
+- `AI_PROVIDER_BASE_URL`: OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`).
+- `AI_PROVIDER_MODEL`: Model identifier (e.g. `gpt-4o` or `deepseek-chat`).
+- `AI_PROVIDER_API_KEY`: API key for your AI provider.
+
+Example `.env` snippet:
+
+```env
+AI_PROVIDER_MODE=external
+AI_PROVIDER_BASE_URL=https://api.openai.com/v1
+AI_PROVIDER_MODEL=gpt-4o
+AI_PROVIDER_API_KEY=your_api_key_here
+```
 
 ---
 
