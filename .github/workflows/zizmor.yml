@@ -6,8 +6,6 @@ on:
       - main
   pull_request:
 
-permissions: {}
-
 jobs:
   zizmor:
     name: GitHub Actions Security

@@ -8,8 +8,6 @@ on:
   schedule:
     - cron: "25 4 * * 1" # Monday 04:25 UTC
 
-permissions: {}
-
 jobs:
   analyze:
     name: CodeQL Analysis
