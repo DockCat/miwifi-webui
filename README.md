@@ -73,8 +73,9 @@ services:
       - path: .env
         required: false
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-miwifi}:${POSTGRES_PASSWORD:-miwifi-secret}@postgres:5432/${POSTGRES_DB:-miwifi}
-      APP_MASTER_KEY: ${APP_MASTER_KEY:-c29tZS1kZWZhdWx0LTMyLWJ5dGUtbWFzdGVyLWtleSE=}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      DATABASE_URL: postgres://${POSTGRES_USER:-miwifi}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-miwifi}
+      APP_MASTER_KEY: ${APP_MASTER_KEY:?APP_MASTER_KEY must be set}
       API_PORT: 3001
       API_HOST: 0.0.0.0
       AI_PROVIDER_MODE: ${AI_PROVIDER_MODE:-}
