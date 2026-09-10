@@ -34,6 +34,13 @@ jobs:
           format: sarif
           output: trivy-fs-results.sarif
 
+      - name: Upload Trivy filesystem SARIF
+        if: ${{ always() && hashFiles('trivy-fs-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-filesystem
+
   iac-scan:
     name: IaC / Configuration Scan
     runs-on: ubuntu-latest
@@ -60,3 +67,10 @@ jobs:
           exit-code: "1"
           format: sarif
           output: trivy-iac-results.sarif
+
+      - name: Upload Trivy IaC SARIF
+        if: ${{ always() && hashFiles('trivy-iac-results.sarif') != '' }}
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          sarif_file: trivy-iac-results.sarif
+          category: trivy-iac
