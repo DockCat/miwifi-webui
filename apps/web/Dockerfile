@@ -1,9 +1,9 @@
 # Build stage
-FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS builder
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS builder
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
+RUN npm install -g pnpm@11.25.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/contracts/package.json ./packages/contracts/
@@ -24,6 +24,11 @@ RUN pnpm --filter @miwifi-webui/web build
 # Production runtime stage: unprivileged nginx (listens on 8080, runs as uid 101)
 FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:2ddec616f1cb58bcac057aa388f28cb81e35137641ef4226d321714499329bd1 AS runner
 
+LABEL org.opencontainers.image.title="miwifi-webui-web" \
+      org.opencontainers.image.description="Self-hosted Xiaomi/Redmi router observability and AI investigation - Web UI" \
+      org.opencontainers.image.source="https://github.com/DockCat/miwifi-webui" \
+      org.opencontainers.image.documentation="https://github.com/DockCat/miwifi-webui#readme"
+
 USER 101
 
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
@@ -31,5 +36,9 @@ COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080
+
+# docker HEALTHCHECK against the unprivileged nginx HTTP endpoint.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:8080/healthz > /dev/null || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

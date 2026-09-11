@@ -1,9 +1,9 @@
 # Build stage
-FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS builder
+FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS builder
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
+RUN npm install -g pnpm@11.25.0
 
 # Copy root workspace manifests
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -27,10 +27,15 @@ RUN pnpm --filter @miwifi-webui/api build
 # Production runtime stage
 FROM node:26-alpine@sha256:ef24c5053d50fdc3e4e56eb4e7ddb7861874ab0fdc797046ba897581deb8e868 AS runner
 
+LABEL org.opencontainers.image.title="miwifi-webui-api" \
+      org.opencontainers.image.description="Self-hosted Xiaomi/Redmi router observability and AI investigation - Backend API" \
+      org.opencontainers.image.source="https://github.com/DockCat/miwifi-webui" \
+      org.opencontainers.image.documentation="https://github.com/DockCat/miwifi-webui#readme"
+
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
+RUN npm install -g pnpm@11.25.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/contracts/package.json ./packages/contracts/

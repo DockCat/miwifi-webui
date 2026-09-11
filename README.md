@@ -96,6 +96,12 @@ services:
     image: highwall777/miwifi-webui-web:latest
     container_name: miwifi-webui-web
     restart: unless-stopped
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz > /dev/null || exit 1" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
     depends_on:
       api:
         condition: service_healthy
