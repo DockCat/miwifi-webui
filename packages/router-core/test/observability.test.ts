@@ -49,6 +49,23 @@ describe('normalizeDevice', () => {
     assert.equal(normalizeDevice({ mac: 'A:4' })?.online, false);
   });
 
+  it('detects online state from nested ip array active flag (RD05-class firmware)', () => {
+    const onlineDevice = normalizeDevice({
+      mac: 'AA:BB:CC:DD:EE:10',
+      ip: [{ ip: '192.168.31.107', downspeed: '100', upspeed: '50', active: 1 }]
+    });
+    assert.equal(onlineDevice?.online, true);
+    assert.equal(onlineDevice?.ip, '192.168.31.107');
+    assert.equal(onlineDevice?.downspeed, 100);
+    assert.equal(onlineDevice?.upspeed, 50);
+
+    const offlineDevice = normalizeDevice({
+      mac: 'AA:BB:CC:DD:EE:11',
+      ip: [{ ip: '192.168.31.108', downspeed: '0', upspeed: '0', active: 0 }]
+    });
+    assert.equal(offlineDevice?.online, false);
+  });
+
   it('prefers nickname when name is absent', () => {
     const device = normalizeDevice({ mac: 'A:5', nickname: 'phone' });
     assert.equal(device?.name, 'phone');
@@ -316,6 +333,23 @@ describe('reconcilePresence', () => {
     assert.equal(deviceKey('AA:1', '192.0.2.1'), 'mac:AA:1');
     assert.equal(deviceKey(undefined, '192.0.2.1'), 'ip:192.0.2.1');
     assert.equal(deviceKey(undefined, undefined), null);
+  });
+
+  it('does not emit spurious OFFLINE when stored and observed use canonical mac-preferred keys', () => {
+    // Device in DB with both MAC and IP: canonical key is mac:AA:BB:CC:DD:EE:01
+    const storedKey = deviceKey('AA:BB:CC:DD:EE:01', '192.168.31.100')!;
+    const stored = new Map([
+      [storedKey, { online: true }]
+    ]);
+
+    // Same device observed in inventory with both MAC and IP: canonical key is mac:AA:BB:CC:DD:EE:01
+    const observedKey = deviceKey('AA:BB:CC:DD:EE:01', '192.168.31.100')!;
+    const observed = new Map([
+      [observedKey, { online: true }]
+    ]);
+
+    const { events } = reconcilePresence(observed, stored);
+    assert.equal(events.length, 0, 'no events should be emitted when device remains online');
   });
 });
 

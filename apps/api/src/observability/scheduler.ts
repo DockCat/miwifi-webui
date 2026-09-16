@@ -229,18 +229,19 @@ export class PollingScheduler {
           if (key) observed.set(key, { online: device.online, device });
         }
 
-        // Stored state keyed the same way (mac-preferred).
+        // Stored state keyed the same way (mac-preferred canonical key).
         const storedDevices = await this.observabilityRepository.listDevicesForRouter(router.id);
         const storedByMac = new Map<string, typeof storedDevices[number]>();
         const storedByIp = new Map<string, typeof storedDevices[number]>();
-        for (const row of storedDevices) {
-          if (row.mac) storedByMac.set(`mac:${row.mac}`, row);
-          if (row.ip) storedByIp.set(`ip:${row.ip}`, row);
-        }
         const stored = new Map<string, { online: boolean }>();
         const storedByKey = new Map<string, typeof storedDevices[number]>();
-        for (const [key, row] of [...storedByMac, ...storedByIp]) {
-          if (!storedByKey.has(key)) {
+
+        for (const row of storedDevices) {
+          const macUpper = row.mac?.toUpperCase();
+          if (macUpper) storedByMac.set(macUpper, row);
+          if (row.ip) storedByIp.set(row.ip, row);
+          const key = deviceKey(macUpper ?? undefined, row.ip ?? undefined);
+          if (key && !storedByKey.has(key)) {
             storedByKey.set(key, row);
             stored.set(key, { online: row.online });
           }
@@ -253,7 +254,11 @@ export class PollingScheduler {
 
         // Apply inventory upserts + presence events.
         for (const [key, entry] of observed) {
-          const existing = storedByKey.get(key);
+          const entryMacUpper = entry.device.mac?.toUpperCase();
+          const existing =
+            storedByKey.get(key) ??
+            (entryMacUpper ? storedByMac.get(entryMacUpper) : undefined) ??
+            (entry.device.ip ? storedByIp.get(entry.device.ip) : undefined);
           if (!existing) {
             if (!entry.device.online) continue; // only register devices seen online
             const inserted = await this.observabilityRepository.insertDevice(

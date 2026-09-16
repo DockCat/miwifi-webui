@@ -63,22 +63,44 @@ function extractIpAndSpeed(value: unknown): {
   ip: string | undefined;
   downspeed?: number;
   upspeed?: number;
+  active?: boolean;
 } {
   if (typeof value === 'string' && value.length > 0) return { ip: value };
   // RD05-class firmware: ip: [{ ip: "192.168.31.107", downspeed: "123", upspeed: "45", active: 1, ... }]
   if (Array.isArray(value)) {
+    let resolvedIp: string | undefined;
+    let resolvedDownspeed: number | undefined;
+    let resolvedUpspeed: number | undefined;
+    let resolvedActive: boolean | undefined;
+
     for (const entry of value) {
       if (entry !== null && typeof entry === 'object') {
         const item = entry as Record<string, unknown>;
         const ip = asString(item['ip']);
         if (ip) {
-          return {
-            ip,
-            downspeed: asNumber(item['downspeed']),
-            upspeed: asNumber(item['upspeed'])
-          };
+          if (!resolvedIp) {
+            resolvedIp = ip;
+            resolvedDownspeed = asNumber(item['downspeed']);
+            resolvedUpspeed = asNumber(item['upspeed']);
+          }
+          const act = item['active'] ?? item['online'];
+          if (act === true || act === 'true' || act === 1 || act === '1') {
+            resolvedActive = true;
+          } else if (act === false || act === 'false' || act === 0 || act === '0') {
+            if (resolvedActive === undefined) {
+              resolvedActive = false;
+            }
+          }
         }
       }
+    }
+    if (resolvedIp) {
+      return {
+        ip: resolvedIp,
+        downspeed: resolvedDownspeed,
+        upspeed: resolvedUpspeed,
+        active: resolvedActive
+      };
     }
   }
   return { ip: undefined };
@@ -103,14 +125,25 @@ export function normalizeDevice(entry: RawDeviceEntry): NormalizedDevice | null 
     asString(entry.nickname);
   const ipInfo = extractIpAndSpeed(entry.ip);
   const ip = ipInfo.ip ?? asString(entry.ipaddress);
-  const online =
+  const hasExplicitOffline =
+    entry.online === false ||
+    entry.online === 'false' ||
+    entry.online === 0 ||
+    entry.online === '0' ||
+    entry.active === 0 ||
+    entry.active === '0' ||
+    entry.active === false;
+
+  const online = !hasExplicitOffline && (
     entry.online === true ||
     entry.online === 'true' ||
     entry.online === 1 ||
     entry.online === '1' ||
     entry.active === 1 ||
     entry.active === '1' ||
-    entry.active === true;
+    entry.active === true ||
+    ipInfo.active === true
+  );
 
   if (mac === undefined && ip === undefined) return null;
 
