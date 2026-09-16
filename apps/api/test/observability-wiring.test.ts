@@ -246,4 +246,87 @@ describe('observability route wiring with scheduler', () => {
     assert.equal(recordedEventKind, 'OFFLINE', 'must record OFFLINE presence event');
     assert.equal(updatedOnlineState, false, 'must update device table online column to false');
   });
+
+  it('PollingScheduler does not emit spurious OFFLINE event for online device with both mac and ip', async () => {
+    let recordedEventKind: string | null = null;
+    let updatedOnlineState: boolean | null = null;
+
+    const mockPool = createMockPool();
+    const mockRouterRepo = {
+      listRouters: async () => [
+        {
+          id: 'router-1',
+          host: '192.168.31.1',
+          compatibility: 'SUPPORTED' as const
+        }
+      ],
+      loadCredential: async () => ({
+        username: 'admin',
+        password: 'pwd'
+      })
+    };
+
+    const mockObsRepo = {
+      listDevicesForRouter: async () => [
+        {
+          id: 'dev-1',
+          routerId: 'router-1',
+          mac: 'AA:BB:CC:DD:EE:01',
+          name: 'phone',
+          ip: '192.168.31.50',
+          online: true,
+          internetAccess: true,
+          firstSeenAt: new Date(),
+          lastSeenAt: new Date()
+        }
+      ],
+      recordPresenceEvent: async (_devId: string, _routerId: string, kind: string) => {
+        recordedEventKind = kind;
+      },
+      updateDeviceObservation: async (_devId: string, fields: { online: boolean }) => {
+        updatedOnlineState = fields.online;
+      }
+    };
+
+    const { EventBridge } = await import('../src/observability/event-bridge.js');
+    const { PollingScheduler } = await import('../src/observability/scheduler.js');
+    const events = new EventBridge();
+
+    const scheduler = new PollingScheduler(
+      mockPool,
+      mockRouterRepo as never,
+      mockObsRepo as never,
+      events,
+      'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+    );
+
+    // Mock adapter that returns the device online with matching MAC and IP
+    const mockAdapter = {
+      call: async (key: string) => {
+        if (key === 'deviceList') {
+          return {
+            status: 200,
+            body: {
+              code: 0,
+              list: [
+                {
+                  mac: 'AA:BB:CC:DD:EE:01',
+                  ip: '192.168.31.50',
+                  online: true
+                }
+              ]
+            }
+          };
+        }
+        return { status: 200, body: { code: 0 } };
+      }
+    };
+    (scheduler as unknown as { adapters: Map<string, unknown> }).adapters.set('router-1', mockAdapter);
+
+    // Call private pollInventoryAll
+    await (scheduler as unknown as { pollInventoryAll: () => Promise<void> }).pollInventoryAll();
+
+    assert.equal(recordedEventKind, null, 'must NOT record any presence event for continuously online device');
+    assert.equal(updatedOnlineState, true, 'device observation remains online true');
+  });
 });
