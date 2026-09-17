@@ -12,6 +12,12 @@ import {
   type MessageKey
 } from './i18n.js';
 import { LanguageSwitcher } from './components/LanguageSwitcher.js';
+import {
+  Sidebar,
+  loadSidebarCollapsed,
+  storeSidebarCollapsed,
+  type NavPage
+} from './components/Sidebar.js';
 import { LoginPage } from './LoginPage.js';
 import { useRoute } from './router.js';
 import { DashboardView } from './views/DashboardView.js';
@@ -32,6 +38,17 @@ export function App() {
   const [locale, setLocaleState] = useState<Locale>(initialLocale);
   const [route, navigate] = useRoute();
   const [refreshTick, setRefreshTick] = useState(0);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() =>
+    loadSidebarCollapsed()
+  );
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      storeSidebarCollapsed(next);
+      return next;
+    });
+  }, []);
 
   const t = useCallback((key: MessageKey) => translate(locale, key), [locale]);
 
@@ -102,51 +119,14 @@ export function App() {
   return (
     <I18nContext.Provider value={{ locale, t, setLocale }}>
       <div className="shell">
-        <nav className="sidebar">
-          <div className="brand">
-            <span className="brand-name">{t('app.title')}</span>
-            <span className="brand-sub">{t('app.tagline')}</span>
-          </div>
-          <ul>
-            <NavItem
-              label={t('nav.dashboard')}
-              active={route.page === 'dashboard'}
-              onClick={() => navigate({ page: 'dashboard' })}
-            />
-            <NavItem
-              label={t('nav.devices')}
-              active={route.page === 'devices'}
-              onClick={() => navigate({ page: 'devices' })}
-            />
-            <NavItem
-              label={t('nav.network')}
-              active={route.page === 'network'}
-              onClick={() => navigate({ page: 'network' })}
-            />
-            <NavItem
-              label={t('nav.events')}
-              active={route.page === 'events'}
-              onClick={() => navigate({ page: 'events' })}
-            />
-            <NavItem
-              label={t('nav.investigations')}
-              active={route.page === 'investigations'}
-              onClick={() => navigate({ page: 'investigations' })}
-            />
-            <NavItem
-              label={t('nav.settings')}
-              active={route.page === 'settings'}
-              onClick={() => navigate({ page: 'settings' })}
-            />
-          </ul>
-          <div className="sidebar-footer">
-            <span className="muted">{auth.username}</span>
-            <LanguageSwitcher />
-            <button className="link-button" onClick={() => void handleLogout()}>
-              {t('settings.logout')}
-            </button>
-          </div>
-        </nav>
+        <Sidebar
+          activePage={route.page as NavPage}
+          isCollapsed={isSidebarCollapsed}
+          username={auth.username}
+          onNavigate={(page) => navigate({ page })}
+          onToggleCollapse={handleToggleSidebar}
+          onLogout={() => void handleLogout()}
+        />
         <main className="content" key={refreshTick}>
           {route.page === 'dashboard' && <DashboardView router={activeRouter} />}
           {route.page === 'devices' && (
@@ -175,27 +155,5 @@ export function App() {
         </main>
       </div>
     </I18nContext.Provider>
-  );
-}
-
-function NavItem({
-  label,
-  active,
-  onClick
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <li>
-      <button
-        className={`nav-item ${active ? 'is-active' : ''}`}
-        aria-current={active ? 'page' : undefined}
-        onClick={onClick}
-      >
-        {label}
-      </button>
-    </li>
   );
 }
