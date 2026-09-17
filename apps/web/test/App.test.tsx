@@ -41,6 +41,10 @@ describe('i18n', () => {
   it('translates keys for every locale', () => {
     assert.equal(translate('en', 'nav.dashboard'), 'Dashboard');
     assert.equal(translate('zh-CN', 'nav.dashboard'), '仪表盘');
+    assert.equal(translate('en', 'nav.collapse'), 'Collapse sidebar');
+    assert.equal(translate('zh-CN', 'nav.collapse'), '收起侧边栏');
+    assert.equal(translate('en', 'nav.expand'), 'Expand sidebar');
+    assert.equal(translate('zh-CN', 'nav.expand'), '展开侧边栏');
     assert.equal(translate('zh-CN', 'devices.status'), '状态');
   });
 
