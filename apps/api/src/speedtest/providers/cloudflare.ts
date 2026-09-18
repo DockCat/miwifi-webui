@@ -19,21 +19,21 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
   constructor(options: CloudflareProviderOptions = {}) {
     this.fetchFn = options.fetchFn ?? fetch;
     this.latencySamples = options.latencySamples ?? 4;
-    this.downloadBytes = options.downloadBytes ?? 10_000_000; // 10MB
-    this.uploadBytes = options.uploadBytes ?? 5_000_000;     // 5MB
-    this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.downloadBytes = options.downloadBytes ?? 50_000_000; // 50MB
+    this.uploadBytes = options.uploadBytes ?? 20_000_000;     // 20MB
+    this.timeoutMs = options.timeoutMs ?? 30_000;
   }
 
   async run(): Promise<SpeedtestExecutionResult> {
     try {
-      // 1. Measure Latency & Jitter
+      // 1. Measure Latency & Jitter (with connection warm-up)
       const { pingMs, jitterMs } = await this.measureLatency();
 
-      // 2. Measure Download Speed
+      // 2. Measure Download Speed (pure transfer time from first byte)
       const downloadBps = await this.measureDownload();
 
-      // 3. Measure Upload Speed
-      const uploadBps = await this.measureUpload();
+      // 3. Measure Upload Speed (deducting 1 RTT server response time)
+      const uploadBps = await this.measureUpload(pingMs);
 
       return {
         downloadBps,
@@ -60,6 +60,18 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
   }
 
   private async measureLatency(): Promise<{ pingMs: number; jitterMs: number }> {
+    // Warm-up request to establish TCP+TLS connection before latency sampling
+    try {
+      const warmup = await this.fetchWithTimeout(
+        'https://speed.cloudflare.com/__down?bytes=0',
+        { method: 'GET' },
+        3_000
+      );
+      await warmup.arrayBuffer();
+    } catch {
+      // Ignore warmup failures, sampling loop handles errors
+    }
+
     const latencies: number[] = [];
 
     for (let i = 0; i < this.latencySamples; i++) {
@@ -98,7 +110,6 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
   }
 
   private async measureDownload(): Promise<number> {
-    const start = performance.now();
     const res = await this.fetchWithTimeout(
       `https://speed.cloudflare.com/__down?bytes=${this.downloadBytes}`,
       { method: 'GET' },
@@ -108,23 +119,33 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
     if (!res.ok) throw new Error(`Download test returned status ${res.status}`);
 
     let totalBytes = 0;
+    let transferStart = performance.now();
+    let firstChunk = true;
+
     if (res.body && typeof res.body.getReader === 'function') {
       const reader = res.body.getReader();
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        if (value) totalBytes += value.byteLength;
+        if (value) {
+          if (firstChunk) {
+            transferStart = performance.now();
+            firstChunk = false;
+          }
+          totalBytes += value.byteLength;
+        }
       }
     } else {
+      transferStart = performance.now();
       const buffer = await res.arrayBuffer();
       totalBytes = buffer.byteLength;
     }
 
-    const durationSeconds = Math.max(0.001, (performance.now() - start) / 1000);
+    const durationSeconds = Math.max(0.001, (performance.now() - transferStart) / 1000);
     return Math.round((totalBytes * 8) / durationSeconds);
   }
 
-  private async measureUpload(): Promise<number> {
+  private async measureUpload(pingMs = 0): Promise<number> {
     const data = new Uint8Array(this.uploadBytes);
     const start = performance.now();
     const res = await this.fetchWithTimeout(
@@ -140,7 +161,9 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
     if (!res.ok) throw new Error(`Upload test returned status ${res.status}`);
     await res.text();
 
-    const durationSeconds = Math.max(0.001, (performance.now() - start) / 1000);
+    const elapsed = (performance.now() - start) / 1000;
+    // Deduct 1 RTT (pingMs) which accounts for the server response return trip after data upload
+    const durationSeconds = Math.max(0.001, elapsed - (pingMs / 1000));
     return Math.round((this.uploadBytes * 8) / durationSeconds);
   }
 

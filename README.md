@@ -333,6 +333,8 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `SPEEDTEST_ENABLED` | No | `true` | Enable or disable the speedtest service |
 | `SPEEDTEST_INTERVAL_MINUTES` | No | `30` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
 | `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `cloudflare`, `fast`) |
+| `SPEEDTEST_DOWNLOAD_BYTES` | No | `50000000` | Download test payload size in bytes (50MB; increase for gigabit lines) |
+| `SPEEDTEST_UPLOAD_BYTES` | No | `20000000` | Upload test payload size in bytes (20MB) |
 
 ---
 
