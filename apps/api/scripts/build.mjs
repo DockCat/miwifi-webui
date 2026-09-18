@@ -24,6 +24,7 @@ const mainResult = await build({
   outfile: path.join(distDir, 'main.js'),
   external: [
     '@fastify/cookie',
+    '@fastify/rate-limit',
     '@node-rs/argon2',
     'fastify',
     'pg',
@@ -42,6 +43,7 @@ const adminResult = await build({
   outfile: path.join(distDir, 'cli/admin.js'),
   external: [
     '@fastify/cookie',
+    '@fastify/rate-limit',
     '@node-rs/argon2',
     'fastify',
     'pg',

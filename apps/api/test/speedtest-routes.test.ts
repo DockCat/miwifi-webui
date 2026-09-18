@@ -223,4 +223,66 @@ describe('Seam 3: Speedtest Routes', () => {
     const histBody = JSON.parse(histRes.body) as { history: SpeedtestResultDTO[] };
     assert.equal(histBody.history.length, 1);
   });
+
+  it('enforces route rate limits on rapid repeated run attempts', async () => {
+    const pool = createMockPool();
+    const testResult: SpeedtestResultDTO = {
+      id: 'st-limit',
+      downloadBps: 50_000_000,
+      uploadBps: 10_000_000,
+      pingMs: 20,
+      jitterMs: 3,
+      provider: 'cloudflare',
+      source: 'backend',
+      triggeredBy: 'manual',
+      status: 'completed',
+      createdAt: new Date().toISOString()
+    };
+    const mockRepo = {
+      insertResult: async () => testResult,
+      getLatest: async () => testResult,
+      getHistory: async () => [testResult],
+      purgeOlderThan: async () => 0
+    };
+
+    const speedtestService = new SpeedtestService({
+      repository: mockRepo as never,
+      events: new EventBridge(),
+      createProvider: () => ({
+        name: 'cloudflare',
+        run: async () => ({
+          downloadBps: 100_000_000,
+          uploadBps: 20_000_000,
+          pingMs: 15,
+          jitterMs: 2,
+          provider: 'cloudflare',
+          source: 'backend',
+          status: 'completed'
+        })
+      })
+    });
+
+    const app = await buildApp({
+      pool,
+      speedtestService
+    });
+
+    // 10 requests allowed
+    for (let i = 0; i < 10; i++) {
+      await app.inject({
+        method: 'POST',
+        url: '/api/speedtest/run',
+        headers: { cookie: `${SESSION_COOKIE}=valid-session-token` }
+      });
+    }
+
+    // 11th request should be rate-limited with 429
+    const limitedRes = await app.inject({
+      method: 'POST',
+      url: '/api/speedtest/run',
+      headers: { cookie: `${SESSION_COOKIE}=valid-session-token` }
+    });
+
+    assert.equal(limitedRes.statusCode, 429);
+  });
 });

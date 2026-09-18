@@ -59,7 +59,8 @@ Status: `DONE` — completed 2026-09-18.
 
 ### Verification
 - `pnpm --filter @miwifi-webui/router-core test`: 59/59 tests pass.
-- `pnpm --filter @miwifi-webui/api exec tsx --test test/speedtest*.test.ts test/ai.test.ts test/config.test.ts test/observability-wiring.test.ts test/envelope.test.ts`: 79/79 tests pass across Seams 1, 2, 3, 4.
+- `pnpm --filter @miwifi-webui/api exec tsx --test test/speedtest*.test.ts test/ai.test.ts test/config.test.ts test/observability-wiring.test.ts test/envelope.test.ts`: 88/88 tests pass across Seams 1, 2, 3, 4 (including rate limiting enforcement test).
 - `pnpm --filter @miwifi-webui/web test`: 68/68 tests pass across Seam 5 (SpeedtestBlock rendering, Mbps formatting, live SSE, zh-CN/en i18n, and DEFAULT_LAYOUT).
 - `pnpm -r typecheck`: 0 errors across all 4 packages (`contracts`, `router-core`, `api`, `web`).
 - `pnpm -r build`: Clean production build for both `api` and `web`.
+- Security & CI: Added `@fastify/rate-limit` with route-level configuration (`max: 10/min` on `/api/speedtest/run`) and sanitized mock URL parsing in test to satisfy CodeQL analysis.
