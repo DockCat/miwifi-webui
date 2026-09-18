@@ -56,8 +56,8 @@ describe('Seam 1: CloudflareSpeedtestProvider', () => {
 describe('Seam 1: FastSpeedtestProvider', () => {
   it('measures download and latency via mock fast endpoints', async () => {
     const mockFetch = (async (url: string | URL | Request) => {
-      const urlStr = String(url);
-      if (urlStr.includes('netflix') || urlStr.includes('fast.com') || urlStr.includes('speedtest')) {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'fast.com' || parsed.hostname === 'api.fast.com') {
         return new Response(new Uint8Array(500_000), { status: 200 });
       }
       return new Response('', { status: 200 });

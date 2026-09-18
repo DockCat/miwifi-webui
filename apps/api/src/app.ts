@@ -9,6 +9,7 @@
  * main.ts creates it and passes it in.
  */
 import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { AuthRepository } from './auth/repository.js';
 import { AuditWriter } from './audit/writer.js';
@@ -66,6 +67,11 @@ export async function buildApp(
   });
 
   await app.register(cookie);
+  await app.register(rateLimit, {
+    global: true,
+    max: 1000,
+    timeWindow: '1 minute'
+  });
 
   // Global error handler: unhandled failures return a clean JSON error —
   // never connection strings, stack traces, or driver messages (which can
