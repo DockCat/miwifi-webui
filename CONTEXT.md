@@ -536,7 +536,33 @@ Expected durable concepts include:
 * telemetry snapshot;
 * audit event;
 * investigation;
-* investigation evidence.
+* investigation evidence;
+* speedtest result.
+
+## Speedtest
+
+A **Speedtest** is an empirical measurement of network throughput (download and upload bandwidth) and latency (ping and jitter) against an Internet endpoint.
+
+Speedtests can be triggered on demand by an administrator or executed on a periodic schedule.
+
+Due to the bandwidth and CPU load involved, speedtest executions are single-flight: only one test runs at a time.
+
+## Speedtest Provider
+
+A **Speedtest Provider** defines the mechanism and external endpoint used to conduct the test:
+
+* `auto`: Attempts router WAN-based testing first, falling back to backend Cloudflare on failure or missing capability;
+* `cloudflare`: Pure backend HTTP/CDN throughput and latency measurement against Cloudflare infrastructure;
+* `fast`: Pure backend measurement against Netflix Fast.com CDN endpoints.
+
+Users can choose their desired provider dynamically in the dashboard UI.
+
+## Speedtest Source
+
+The **Speedtest Source** identifies the execution origin where the network test physically ran:
+
+* `router`: Executed by the Xiaomi router on its WAN interface;
+* `backend`: Executed by the application container / host on its network interface.
 
 ## Deployment Stack
 
