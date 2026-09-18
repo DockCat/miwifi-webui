@@ -11,6 +11,10 @@ import { RouterRepository } from './router/repository.js';
 import { ObservabilityRepository } from './observability/repository.js';
 import { EventBridge } from './observability/event-bridge.js';
 import { PollingScheduler } from './observability/scheduler.js';
+import { loadSpeedtestConfig } from './speedtest/config.js';
+import { SpeedtestRepository } from './speedtest/repository.js';
+import { SpeedtestService } from './speedtest/service.js';
+import { SpeedtestScheduler } from './speedtest/scheduler.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -49,10 +53,21 @@ async function main(): Promise<void> {
     masterKeyWarning = true;
   }
 
+  const speedtestConfig = loadSpeedtestConfig();
+  const speedtestRepo = new SpeedtestRepository(pool);
+  const speedtestService = new SpeedtestService({
+    repository: speedtestRepo,
+    events: eventBridge,
+    getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null)
+  });
+  const speedtestScheduler = new SpeedtestScheduler(speedtestService, speedtestConfig);
+  speedtestScheduler.start();
+
   const app = await buildApp({
     pool,
     scheduler: scheduler ?? undefined,
     eventBridge,
+    speedtestService,
     // TRUST_PROXY=true when the API runs behind the compose web proxy (or
     // another trusted reverse proxy), so request.protocol / request.ip use
     // the forwarded headers instead of the proxy's own address.
@@ -67,6 +82,7 @@ async function main(): Promise<void> {
     await app.listen({ port: config.port, host: config.host });
   } catch (error) {
     app.log.error(error, 'Failed to start API');
+    speedtestScheduler.stop();
     scheduler?.stop();
     await closePool(pool);
     process.exitCode = 1;
@@ -79,6 +95,7 @@ async function main(): Promise<void> {
     shuttingDown = true;
     app.log.info({ signal }, 'Shutting down');
     try {
+      speedtestScheduler.stop();
       scheduler?.stop();
       await app.close(); // Closes the HTTP server; in-flight requests drain.
       await closePool(pool);

@@ -324,10 +324,15 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `AI_PROVIDER_BASE_URL` | For AI | - | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`) |
 | `AI_PROVIDER_MODEL` | For AI | - | Model identifier (e.g. `gpt-4o`, `deepseek-chat`) |
 | `AI_PROVIDER_API_KEY` | For AI | - | API key for the AI provider |
+| `AI_PROVIDER_MAX_TOKENS` | For AI | `2048` | Max completion tokens requested from AI provider (set `0` to omit) |
 | `RETENTION_TELEMETRY_DAYS` | No | `90` | Telemetry snapshot retention period (days) |
 | `RETENTION_PRESENCE_DAYS` | No | `365` | Device presence event retention period (days) |
 | `RETENTION_AUDIT_DAYS` | No | `365` | Security/audit event retention period (days) |
 | `RETENTION_INVESTIGATION_DAYS` | No | `30` | AI investigation session retention period (days) |
+| `RETENTION_SPEEDTEST_DAYS` | No | `90` | Speedtest result retention period (days) |
+| `SPEEDTEST_ENABLED` | No | `true` | Enable or disable the speedtest service |
+| `SPEEDTEST_INTERVAL_MINUTES` | No | `30` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
+| `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `cloudflare`, `fast`) |
 
 ---
 

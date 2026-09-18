@@ -4,6 +4,13 @@
  * the router directly.
  */
 
+import type {
+  SpeedtestResultDTO,
+  SpeedtestProviderType,
+  SpeedtestSourceType,
+  SpeedtestStatusType
+} from '@miwifi-webui/contracts';
+
 export interface RouterSummary {
   id: string;
   host: string;
@@ -196,8 +203,31 @@ export const api = {
           locale: opts?.locale
         })
       }
+    ),
+
+  speedtestRun: (provider?: SpeedtestProviderType) =>
+    request<{ result: SpeedtestResultDTO }>('/api/speedtest/run', {
+      method: 'POST',
+      body: JSON.stringify({ provider })
+    }),
+
+  speedtestLatest: (routerId?: string) =>
+    request<{ latest: SpeedtestResultDTO | null }>(
+      `/api/speedtest/latest${routerId ? `?routerId=${routerId}` : ''}`
+    ),
+
+  speedtestHistory: (limit = 10, routerId?: string) =>
+    request<{ history: SpeedtestResultDTO[] }>(
+      `/api/speedtest/history?limit=${limit}${routerId ? `&routerId=${routerId}` : ''}`
     )
 };
+
+export type {
+  SpeedtestResultDTO,
+  SpeedtestProviderType,
+  SpeedtestSourceType,
+  SpeedtestStatusType
+} from '@miwifi-webui/contracts';
 
 export interface InvestigationSummary {
   id: string;

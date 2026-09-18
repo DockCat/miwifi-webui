@@ -43,12 +43,13 @@ after(async () => {
 });
 
 describe('retention policy', () => {
-  it('defaults match the plan (90/365/365/30)', () => {
+  it('defaults match the plan (90/365/365/30/90)', () => {
     assert.deepEqual(DEFAULT_RETENTION, {
       telemetryDays: 90,
       presenceDays: 365,
       auditDays: 365,
-      investigationDays: 30
+      investigationDays: 30,
+      speedtestDays: 90
     });
   });
 
