@@ -332,9 +332,10 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `RETENTION_SPEEDTEST_DAYS` | No | `90` | Speedtest result retention period (days) |
 | `SPEEDTEST_ENABLED` | No | `true` | Enable or disable the speedtest service |
 | `SPEEDTEST_INTERVAL_MINUTES` | No | `30` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
-| `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `cloudflare`, `fast`) |
-| `SPEEDTEST_DOWNLOAD_BYTES` | No | `50000000` | Download test payload size in bytes (50MB; increase for gigabit lines) |
-| `SPEEDTEST_UPLOAD_BYTES` | No | `20000000` | Upload test payload size in bytes (20MB) |
+| `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `mlab`, `cloudflare`, `fast`) |
+| `SPEEDTEST_DOWNLOAD_BYTES` | No | `50000000` | Download test payload size in bytes for Cloudflare (50MB; configurable) |
+| `SPEEDTEST_UPLOAD_BYTES` | No | `20000000` | Upload test payload size in bytes for Cloudflare (20MB) |
+| `SPEEDTEST_MLAB_DURATION_SECONDS` | No | `5` | M-Lab NDT7 stream duration per direction in seconds (5s; saturates 800+ Mbps) |
 
 ---
 

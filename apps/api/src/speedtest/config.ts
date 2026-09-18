@@ -7,6 +7,7 @@ export interface SpeedtestConfig {
   readonly defaultProvider: SpeedtestProviderType;
   readonly downloadBytes: number;
   readonly uploadBytes: number;
+  readonly mlabDurationSeconds: number;
 }
 
 export function loadSpeedtestConfig(): SpeedtestConfig {
@@ -24,7 +25,7 @@ export function loadSpeedtestConfig(): SpeedtestConfig {
 
   const rawProvider = process.env.SPEEDTEST_DEFAULT_PROVIDER?.trim().toLowerCase();
   const defaultProvider: SpeedtestProviderType =
-    rawProvider === 'cloudflare' || rawProvider === 'fast' ? rawProvider : 'auto';
+    rawProvider === 'cloudflare' || rawProvider === 'mlab' || rawProvider === 'fast' ? rawProvider : 'auto';
 
   const rawDlBytes = process.env.SPEEDTEST_DOWNLOAD_BYTES;
   let downloadBytes = 50_000_000; // 50MB default
@@ -44,5 +45,14 @@ export function loadSpeedtestConfig(): SpeedtestConfig {
     }
   }
 
-  return { enabled, intervalMinutes, defaultProvider, downloadBytes, uploadBytes };
+  const rawMlabDuration = process.env.SPEEDTEST_MLAB_DURATION_SECONDS;
+  let mlabDurationSeconds = 5; // 5s default
+  if (rawMlabDuration !== undefined && rawMlabDuration.trim() !== '') {
+    const parsed = Number.parseInt(rawMlabDuration.trim(), 10);
+    if (Number.isInteger(parsed) && parsed >= 2 && parsed <= 30) {
+      mlabDurationSeconds = parsed;
+    }
+  }
+
+  return { enabled, intervalMinutes, defaultProvider, downloadBytes, uploadBytes, mlabDurationSeconds };
 }
