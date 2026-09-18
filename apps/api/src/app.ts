@@ -23,6 +23,9 @@ import { registerObservabilityRoutes } from './routes/observability.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerInvestigationRoutes } from './routes/investigations.js';
 import { InvestigationRepository } from './ai/repository.js';
+import { registerSpeedtestRoutes } from './routes/speedtest.js';
+import { SpeedtestRepository } from './speedtest/repository.js';
+import { SpeedtestService } from './speedtest/service.js';
 import type pg from 'pg';
 
 export interface BuildAppOptions {
@@ -30,6 +33,7 @@ export interface BuildAppOptions {
   /** Created by main.ts; absent in tests unless a test provides one. */
   readonly scheduler?: PollingScheduler;
   readonly eventBridge?: EventBridge;
+  readonly speedtestService?: SpeedtestService;
   /**
    * Trust X-Forwarded-* headers (request.ip, protocol). Boolean `true`
    * trusts every forwarded claim — only safe when no untrusted client can
@@ -115,6 +119,19 @@ export async function buildApp(
     pool,
     scheduler
   });
+
+  const speedtest =
+    options && typeof options === 'object' && 'speedtestService' in options && options.speedtestService
+      ? options.speedtestService
+      : new SpeedtestService({
+          repository: new SpeedtestRepository(pool),
+          events,
+          getRouterAdapter: (routerId) => {
+            return routerId ? scheduler?.getAdapter(routerId) ?? null : null;
+          }
+        });
+
+  registerSpeedtestRoutes(app, { speedtestService: speedtest });
 
   return app;
 }

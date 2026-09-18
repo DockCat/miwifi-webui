@@ -22,6 +22,7 @@ import { DeviceUsageDrawer, formatBytes } from '../components/DeviceUsageDrawer.
 import { ConnectionIcon } from '../components/ConnectionIcon.js';
 import { useDashboardLayout } from '../components/dashboard/useDashboardLayout.js';
 import { DashboardGrid, DashboardBlock } from '../components/dashboard/DashboardGrid.js';
+import { SpeedtestBlock } from '../components/dashboard/SpeedtestBlock.js';
 
 interface StatusPayload {
   capturedAt?: string;
@@ -114,6 +115,7 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
   const [trafficTab, setTrafficTab] = useState<'total' | 'live'>('total');
   const [clientTab, setClientTab] = useState<'all' | 'wired' | 'wireless' | 'guest'>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
+  const [lastSpeedtestEvent, setLastSpeedtestEvent] = useState<{ type: string; data: Record<string, unknown> } | null>(null);
   const {
     layout,
     commitLayout,
@@ -207,6 +209,9 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
           });
         });
       }
+    }
+    if (event.type === 'speedtest-start' || event.type === 'speedtest-complete') {
+      setLastSpeedtestEvent({ type: event.type, data: event.data });
     }
   });
 
@@ -829,6 +834,11 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
           }
         >
           <UniFiAreaChart data={timeseries} responsive range={range} />
+        </DashboardBlock>
+
+        {/* 8. Internet Speedtest */}
+        <DashboardBlock id="speedtest">
+          <SpeedtestBlock routerId={router.id} liveEvent={lastSpeedtestEvent} />
         </DashboardBlock>
       </DashboardGrid>
 

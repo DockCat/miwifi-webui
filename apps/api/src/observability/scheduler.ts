@@ -111,6 +111,11 @@ export class PollingScheduler {
     return this.latestDevices.get(routerId) ?? null;
   }
 
+  /** Get cached authenticated adapter for a router if present. */
+  getAdapter(routerId: string): MiWifiAdapter | null {
+    return this.adapters.get(routerId) ?? null;
+  }
+
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;

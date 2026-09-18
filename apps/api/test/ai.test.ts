@@ -25,6 +25,7 @@ import {
   routerStatusTool,
   telemetryTimeseriesTool,
   deviceTrafficUsageTool,
+  speedtestHistoryTool,
   type ToolContext
 } from '../src/ai/tools.js';
 import {
@@ -44,12 +45,40 @@ describe('provider default state', () => {
       'AI_PROVIDER_MODE',
       'AI_PROVIDER_BASE_URL',
       'AI_PROVIDER_MODEL',
-      'AI_PROVIDER_API_KEY'
+      'AI_PROVIDER_API_KEY',
+      'AI_PROVIDER_MAX_TOKENS'
     ]) {
       delete process.env[key];
     }
     assert.deepEqual(loadProviderConfig(), DISABLED_PROVIDER);
     assert.equal(loadProviderConfig().mode, 'disabled');
+  });
+
+  it('parses maxTokens from AI_PROVIDER_MAX_TOKENS with default fallback to 2048', () => {
+    process.env.AI_PROVIDER_MODE = 'external';
+    process.env.AI_PROVIDER_BASE_URL = 'https://api.example.com/v1';
+    process.env.AI_PROVIDER_MODEL = 'gpt-test';
+    delete process.env.AI_PROVIDER_MAX_TOKENS;
+
+    let config = loadProviderConfig();
+    assert.equal(config.maxTokens, 2048);
+
+    process.env.AI_PROVIDER_MAX_TOKENS = '4096';
+    config = loadProviderConfig();
+    assert.equal(config.maxTokens, 4096);
+
+    process.env.AI_PROVIDER_MAX_TOKENS = '0';
+    config = loadProviderConfig();
+    assert.equal(config.maxTokens, 0);
+
+    process.env.AI_PROVIDER_MAX_TOKENS = 'invalid';
+    config = loadProviderConfig();
+    assert.equal(config.maxTokens, 2048);
+
+    delete process.env.AI_PROVIDER_MODE;
+    delete process.env.AI_PROVIDER_BASE_URL;
+    delete process.env.AI_PROVIDER_MODEL;
+    delete process.env.AI_PROVIDER_MAX_TOKENS;
   });
 
   it('local mode requires base url and model', () => {
@@ -117,7 +146,7 @@ describe('provider default state', () => {
 });
 
 describe('tool registry', () => {
-  it('contains exactly the eight read-only tools', () => {
+  it('contains exactly the nine read-only tools', () => {
     assert.deepEqual(
       INVESTIGATION_TOOLS.map((tool) => tool.name),
       [
@@ -128,7 +157,8 @@ describe('tool registry', () => {
         'telemetry_timeseries',
         'dashboard_summary',
         'evidence_lookup',
-        'device_traffic_usage'
+        'device_traffic_usage',
+        'speedtest_history'
       ]
     );
     // No mutation tool can exist in the registry.
@@ -192,6 +222,49 @@ describe('tool registry', () => {
   it('device_state validation bounds', () => {
     assert.equal(deviceStateTool.validate({ limit: 999 }), null);
     assert.deepEqual(deviceStateTool.validate({ limit: 50 }), { limit: 50 });
+  });
+
+  it('speedtest_history validates bounds and executes correctly', async () => {
+    assert.equal(speedtestHistoryTool.validate({ limit: 0 }), null);
+    assert.equal(speedtestHistoryTool.validate({ limit: 51 }), null);
+    assert.deepEqual(speedtestHistoryTool.validate({ limit: 10 }), { limit: 10, since: null });
+    assert.deepEqual(speedtestHistoryTool.validate({}), { limit: 5, since: null });
+
+    const mockPool = {
+      query: async () => ({
+        rows: [
+          {
+            id: 'st-1',
+            download_bps: '100000000',
+            upload_bps: '20000000',
+            ping_ms: '15.5',
+            jitter_ms: '2.1',
+            provider: 'cloudflare',
+            source: 'backend',
+            triggered_by: 'manual',
+            status: 'completed',
+            error_message: null,
+            created_at: new Date('2026-09-18T00:00:00Z')
+          }
+        ]
+      })
+    };
+    const ctx = {
+      pool: mockPool as never,
+      routerId: 'router-1',
+      privacy: LOCAL_PRIVACY,
+      aliases: new AliasMap()
+    };
+    const result = (await speedtestHistoryTool.execute(ctx, { limit: 5, since: null })) as {
+      count: number;
+      tests: Array<{ downloadMbps: number; uploadMbps: number; pingMs: number }>;
+    };
+    assert.equal(result.count, 1);
+    const firstTest = result.tests[0];
+    assert.ok(firstTest, 'first test should exist');
+    assert.equal(firstTest.downloadMbps, 100);
+    assert.equal(firstTest.uploadMbps, 20);
+    assert.equal(firstTest.pingMs, 15.5);
   });
 });
 
@@ -422,6 +495,7 @@ describe('alias legend in investigation results', () => {
           baseUrl: 'http://provider.test/v1',
           apiKey: null,
           model: 'test-model',
+          maxTokens: 2048,
           privacy: EXTERNAL_PRIVACY
         },
         {
@@ -575,6 +649,7 @@ describe('conversation history reaches the provider', () => {
           baseUrl: 'http://provider.test/v1',
           apiKey: null,
           model: 'test-model',
+          maxTokens: 2048,
           privacy: LOCAL_PRIVACY
         },
         {
@@ -629,7 +704,7 @@ describe('deterministic tool choice for traffic questions', () => {
     }) as typeof fetch;
     try {
       await runInvestigation(
-        { mode: 'local', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
+        { mode: 'local', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY },
         { pool: { query: async () => ({ rows: [] }) } as never, routerId: 'router-1' },
         '過去24小時下載流量總和最多的是哪一個裝置？'
       );
@@ -663,7 +738,7 @@ describe('deterministic tool choice for traffic questions', () => {
     } } as never;
     try {
       const result = await runInvestigation(
-        { mode: 'external', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
+        { mode: 'external', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY },
         { pool, routerId: 'router-1' },
         'device_01 在哪個時段下載流量最高嗎？'
       );
@@ -719,7 +794,7 @@ describe('extractProviderErrorMessage', () => {
 
 describe('investigation privacy and transcript regressions', () => {
   const config = { mode: 'external' as const, baseUrl: 'http://provider.test/v1', apiKey: null,
-    model: 'test', privacy: LOCAL_PRIVACY }; // Caller cannot bypass external policy.
+    model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY }; // Caller cannot bypass external policy.
   const ctx = { routerId: 'router-1', pool: { query: async () => ({ rows: [
     { id: 'd-1', name: 'SEN[1]TINEL-TV', mac: 'AA:BB:CC:DD:EE:FF', ip: 'fe80::1234' }
   ] }) } as never };
