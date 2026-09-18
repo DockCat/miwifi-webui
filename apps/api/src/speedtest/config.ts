@@ -5,6 +5,8 @@ export interface SpeedtestConfig {
   readonly enabled: boolean;
   readonly intervalMinutes: number;
   readonly defaultProvider: SpeedtestProviderType;
+  readonly downloadBytes: number;
+  readonly uploadBytes: number;
 }
 
 export function loadSpeedtestConfig(): SpeedtestConfig {
@@ -24,5 +26,23 @@ export function loadSpeedtestConfig(): SpeedtestConfig {
   const defaultProvider: SpeedtestProviderType =
     rawProvider === 'cloudflare' || rawProvider === 'fast' ? rawProvider : 'auto';
 
-  return { enabled, intervalMinutes, defaultProvider };
+  const rawDlBytes = process.env.SPEEDTEST_DOWNLOAD_BYTES;
+  let downloadBytes = 50_000_000; // 50MB default
+  if (rawDlBytes !== undefined && rawDlBytes.trim() !== '') {
+    const parsed = Number.parseInt(rawDlBytes.trim(), 10);
+    if (Number.isInteger(parsed) && parsed >= 1_000_000) {
+      downloadBytes = parsed;
+    }
+  }
+
+  const rawUlBytes = process.env.SPEEDTEST_UPLOAD_BYTES;
+  let uploadBytes = 20_000_000; // 20MB default
+  if (rawUlBytes !== undefined && rawUlBytes.trim() !== '') {
+    const parsed = Number.parseInt(rawUlBytes.trim(), 10);
+    if (Number.isInteger(parsed) && parsed >= 1_000_000) {
+      uploadBytes = parsed;
+    }
+  }
+
+  return { enabled, intervalMinutes, defaultProvider, downloadBytes, uploadBytes };
 }

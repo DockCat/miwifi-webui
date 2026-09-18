@@ -15,6 +15,8 @@ export interface SpeedtestServiceOptions {
   readonly events: EventBridge;
   readonly getRouterAdapter?: (routerId?: string) => MiWifiAdapter | null;
   readonly createProvider?: (providerType: SpeedtestProviderType, routerId?: string) => SpeedtestProvider;
+  readonly downloadBytes?: number;
+  readonly uploadBytes?: number;
 }
 
 export class SpeedtestService {
@@ -26,12 +28,16 @@ export class SpeedtestService {
     providerType: SpeedtestProviderType,
     routerId?: string
   ) => SpeedtestProvider;
+  private readonly downloadBytes?: number;
+  private readonly uploadBytes?: number;
 
   constructor(options: SpeedtestServiceOptions) {
     this.repository = options.repository;
     this.events = options.events;
     this.getRouterAdapter = options.getRouterAdapter;
     this.createProviderFn = options.createProvider;
+    this.downloadBytes = options.downloadBytes;
+    this.uploadBytes = options.uploadBytes;
   }
 
   get isRunning(): boolean {
@@ -105,12 +111,18 @@ export class SpeedtestService {
     }
 
     if (providerType === 'cloudflare') {
-      return new CloudflareSpeedtestProvider();
+      return new CloudflareSpeedtestProvider({
+        downloadBytes: this.downloadBytes,
+        uploadBytes: this.uploadBytes
+      });
     }
 
     // Default 'auto': router first with cloudflare fallback
     const adapter = this.getRouterAdapter ? this.getRouterAdapter(routerId) : null;
-    const cloudflare = new CloudflareSpeedtestProvider();
+    const cloudflare = new CloudflareSpeedtestProvider({
+      downloadBytes: this.downloadBytes,
+      uploadBytes: this.uploadBytes
+    });
     return new AutoSpeedtestProvider(adapter, cloudflare);
   }
 }

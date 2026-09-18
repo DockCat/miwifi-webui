@@ -59,7 +59,9 @@ async function main(): Promise<void> {
   const speedtestService = new SpeedtestService({
     repository: speedtestRepo,
     events: eventBridge,
-    getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null)
+    getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
+    downloadBytes: speedtestConfig.downloadBytes,
+    uploadBytes: speedtestConfig.uploadBytes
   });
   const speedtestScheduler = new SpeedtestScheduler(speedtestService, speedtestConfig);
   speedtestScheduler.start();

@@ -27,6 +27,7 @@ import { InvestigationRepository } from './ai/repository.js';
 import { registerSpeedtestRoutes } from './routes/speedtest.js';
 import { SpeedtestRepository } from './speedtest/repository.js';
 import { SpeedtestService } from './speedtest/service.js';
+import { loadSpeedtestConfig } from './speedtest/config.js';
 import type pg from 'pg';
 
 export interface BuildAppOptions {
@@ -126,6 +127,7 @@ export async function buildApp(
     scheduler
   });
 
+  const speedtestConfig = loadSpeedtestConfig();
   const speedtest =
     options && typeof options === 'object' && 'speedtestService' in options && options.speedtestService
       ? options.speedtestService
@@ -134,7 +136,9 @@ export async function buildApp(
           events,
           getRouterAdapter: (routerId) => {
             return routerId ? scheduler?.getAdapter(routerId) ?? null : null;
-          }
+          },
+          downloadBytes: speedtestConfig.downloadBytes,
+          uploadBytes: speedtestConfig.uploadBytes
         });
 
   registerSpeedtestRoutes(app, { speedtestService: speedtest });
