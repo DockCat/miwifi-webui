@@ -2,7 +2,7 @@
  * Speedtest DTOs shared between api and web.
  */
 
-export type SpeedtestProviderType = 'auto' | 'cloudflare' | 'fast';
+export type SpeedtestProviderType = 'auto' | 'cloudflare' | 'mlab' | 'fast';
 export type SpeedtestSourceType = 'router' | 'backend';
 export type SpeedtestStatusType = 'running' | 'completed' | 'failed';
 

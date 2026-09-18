@@ -6,7 +6,8 @@ export class AutoSpeedtestProvider implements SpeedtestProvider {
 
   constructor(
     private readonly routerAdapter: MiWifiAdapter | null,
-    private readonly backendProvider: SpeedtestProvider
+    private readonly primaryBackend: SpeedtestProvider,
+    private readonly secondaryBackend?: SpeedtestProvider
   ) {}
 
   async run(): Promise<SpeedtestExecutionResult> {
@@ -41,10 +42,20 @@ export class AutoSpeedtestProvider implements SpeedtestProvider {
       }
     }
 
-    // 2. Fallback to backend speedtest runner
-    const backendResult = await this.backendProvider.run();
+    // 2. Primary backend speedtest runner (e.g. M-Lab)
+    const primaryResult = await this.primaryBackend.run();
+    if (primaryResult.status === 'completed' || !this.secondaryBackend) {
+      return {
+        ...primaryResult,
+        provider: 'auto',
+        source: 'backend'
+      };
+    }
+
+    // 3. Fallback to secondary backend runner if primary failed (e.g. Cloudflare)
+    const secondaryResult = await this.secondaryBackend.run();
     return {
-      ...backendResult,
+      ...secondaryResult,
       provider: 'auto',
       source: 'backend'
     };

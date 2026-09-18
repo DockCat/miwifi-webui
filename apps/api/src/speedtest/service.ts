@@ -6,6 +6,7 @@ import type { EventBridge } from '../observability/event-bridge.js';
 import type { SpeedtestRepository } from './repository.js';
 import type { SpeedtestProvider } from './types.js';
 import { CloudflareSpeedtestProvider } from './providers/cloudflare.js';
+import { MlabSpeedtestProvider } from './providers/mlab.js';
 import { FastSpeedtestProvider } from './providers/fast.js';
 import { AutoSpeedtestProvider } from './providers/auto.js';
 import type { MiWifiAdapter } from '@miwifi-webui/router-core';
@@ -17,6 +18,7 @@ export interface SpeedtestServiceOptions {
   readonly createProvider?: (providerType: SpeedtestProviderType, routerId?: string) => SpeedtestProvider;
   readonly downloadBytes?: number;
   readonly uploadBytes?: number;
+  readonly mlabDurationSeconds?: number;
 }
 
 export class SpeedtestService {
@@ -30,6 +32,7 @@ export class SpeedtestService {
   ) => SpeedtestProvider;
   private readonly downloadBytes?: number;
   private readonly uploadBytes?: number;
+  private readonly mlabDurationSeconds?: number;
 
   constructor(options: SpeedtestServiceOptions) {
     this.repository = options.repository;
@@ -38,6 +41,7 @@ export class SpeedtestService {
     this.createProviderFn = options.createProvider;
     this.downloadBytes = options.downloadBytes;
     this.uploadBytes = options.uploadBytes;
+    this.mlabDurationSeconds = options.mlabDurationSeconds;
   }
 
   get isRunning(): boolean {
@@ -110,6 +114,12 @@ export class SpeedtestService {
       return new FastSpeedtestProvider();
     }
 
+    if (providerType === 'mlab') {
+      return new MlabSpeedtestProvider({
+        durationSeconds: this.mlabDurationSeconds
+      });
+    }
+
     if (providerType === 'cloudflare') {
       return new CloudflareSpeedtestProvider({
         downloadBytes: this.downloadBytes,
@@ -117,12 +127,15 @@ export class SpeedtestService {
       });
     }
 
-    // Default 'auto': router first with cloudflare fallback
+    // Default 'auto': router first with mlab fallback, then cloudflare fallback
     const adapter = this.getRouterAdapter ? this.getRouterAdapter(routerId) : null;
+    const mlab = new MlabSpeedtestProvider({
+      durationSeconds: this.mlabDurationSeconds
+    });
     const cloudflare = new CloudflareSpeedtestProvider({
       downloadBytes: this.downloadBytes,
       uploadBytes: this.uploadBytes
     });
-    return new AutoSpeedtestProvider(adapter, cloudflare);
+    return new AutoSpeedtestProvider(adapter, mlab, cloudflare);
   }
 }

@@ -160,4 +160,134 @@ describe('Seam 1: AutoSpeedtestProvider (Router first with fallback)', () => {
     assert.equal(result.status, 'completed');
     assert.equal(result.downloadBps, 60_000_000);
   });
+
+  it('falls back to secondary backend provider when primary backend fails', async () => {
+    const mockPrimary = {
+      run: async () => ({
+        downloadBps: 0,
+        uploadBps: 0,
+        pingMs: 0,
+        jitterMs: 0,
+        provider: 'mlab' as const,
+        source: 'backend' as const,
+        status: 'failed' as const,
+        errorMessage: 'M-Lab locate failed'
+      })
+    };
+
+    const mockSecondary = {
+      run: async () => ({
+        downloadBps: 500_000_000,
+        uploadBps: 200_000_000,
+        pingMs: 10,
+        jitterMs: 1,
+        provider: 'cloudflare' as const,
+        source: 'backend' as const,
+        status: 'completed' as const
+      })
+    };
+
+    const provider = new AutoSpeedtestProvider(null, mockPrimary as never, mockSecondary as never);
+    const result = await provider.run();
+
+    assert.equal(result.provider, 'auto');
+    assert.equal(result.source, 'backend');
+    assert.equal(result.status, 'completed');
+    assert.equal(result.downloadBps, 500_000_000);
+  });
+});
+
+describe('Seam 1: MlabSpeedtestProvider', () => {
+  it('measures download and upload speeds using simulated NDT7 WebSockets', async () => {
+    const { MlabSpeedtestProvider } = await import('../src/speedtest/providers/mlab.js');
+
+    const mockFetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              machine: 'ndt-mock-server',
+              hostname: 'ndt-mock-server.test',
+              urls: {
+                'wss:///ndt/v7/download': 'wss://ndt-mock-server.test/download',
+                'wss:///ndt/v7/upload': 'wss://ndt-mock-server.test/upload'
+              }
+            }
+          ]
+        }),
+        { status: 200 }
+      );
+    }) as typeof fetch;
+
+    class MockWebSocket {
+      static OPEN = 1;
+      static CONNECTING = 0;
+      readyState = 1;
+      binaryType = 'arraybuffer';
+      bufferedAmount = 0;
+      onopen: (() => void) | null = null;
+      onmessage: ((evt: { data: unknown }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      onerror: ((err: unknown) => void) | null = null;
+
+      constructor(public url: string) {
+        setTimeout(() => {
+          this.onopen?.();
+          if (url.includes('download')) {
+            // Send simulated download chunks
+            for (let i = 0; i < 5; i++) {
+              this.onmessage?.({ data: new Uint8Array(200_000) });
+            }
+          }
+        }, 10);
+      }
+
+      send(data: unknown) {
+        const len = data && typeof data === 'object' && 'byteLength' in data ? Number(data.byteLength) : 65536;
+        this.bufferedAmount += len;
+        setTimeout(() => {
+          this.bufferedAmount = 0;
+        }, 10);
+      }
+
+      close() {
+        this.readyState = 3;
+        setTimeout(() => this.onclose?.(), 5);
+      }
+    }
+
+    const provider = new MlabSpeedtestProvider({
+      fetchFn: mockFetch,
+      webSocketFactory: (url) => new MockWebSocket(url) as unknown as WebSocket,
+      durationSeconds: 1
+    });
+
+    const result = await provider.run();
+
+    assert.equal(result.provider, 'mlab');
+    assert.equal(result.source, 'backend');
+    assert.equal(result.status, 'completed');
+    assert.ok(result.downloadBps > 0, 'downloadBps should be positive');
+    assert.ok(result.uploadBps > 0, 'uploadBps should be positive');
+  });
+
+  it('fails safely when M-Lab server discovery fails', async () => {
+    const { MlabSpeedtestProvider } = await import('../src/speedtest/providers/mlab.js');
+
+    const mockFetch = (async () => {
+      throw new Error('Locate API down');
+    }) as typeof fetch;
+
+    const provider = new MlabSpeedtestProvider({
+      fetchFn: mockFetch,
+      durationSeconds: 2
+    });
+
+    const result = await provider.run();
+
+    assert.equal(result.provider, 'mlab');
+    assert.equal(result.source, 'backend');
+    assert.equal(result.status, 'failed');
+    assert.ok(result.errorMessage?.includes('Locate API down'));
+  });
 });

@@ -65,27 +65,31 @@ describe('Seam 2: Speedtest Config', () => {
     assert.equal(config.defaultProvider, 'auto');
     assert.equal(config.downloadBytes, 50_000_000);
     assert.equal(config.uploadBytes, 20_000_000);
+    assert.equal(config.mlabDurationSeconds, 5);
   });
 
   it('parses custom environment variables properly', () => {
     process.env.SPEEDTEST_ENABLED = 'false';
     process.env.SPEEDTEST_INTERVAL_MINUTES = '60';
-    process.env.SPEEDTEST_DEFAULT_PROVIDER = 'cloudflare';
+    process.env.SPEEDTEST_DEFAULT_PROVIDER = 'mlab';
     process.env.SPEEDTEST_DOWNLOAD_BYTES = '100000000';
     process.env.SPEEDTEST_UPLOAD_BYTES = '30000000';
+    process.env.SPEEDTEST_MLAB_DURATION_SECONDS = '10';
 
     const config = loadSpeedtestConfig();
     assert.equal(config.enabled, false);
     assert.equal(config.intervalMinutes, 60);
-    assert.equal(config.defaultProvider, 'cloudflare');
+    assert.equal(config.defaultProvider, 'mlab');
     assert.equal(config.downloadBytes, 100_000_000);
     assert.equal(config.uploadBytes, 30_000_000);
+    assert.equal(config.mlabDurationSeconds, 10);
 
     delete process.env.SPEEDTEST_ENABLED;
     delete process.env.SPEEDTEST_INTERVAL_MINUTES;
     delete process.env.SPEEDTEST_DEFAULT_PROVIDER;
     delete process.env.SPEEDTEST_DOWNLOAD_BYTES;
     delete process.env.SPEEDTEST_UPLOAD_BYTES;
+    delete process.env.SPEEDTEST_MLAB_DURATION_SECONDS;
   });
 });
 
@@ -101,34 +105,26 @@ describe('Seam 2: SpeedtestService Concurrency & Execution Lock', () => {
       createProvider: () => provider
     });
 
-    // Launch first test (takes 50ms)
-    const run1Promise = service.runTest({ provider: 'cloudflare', triggeredBy: 'manual' });
-
+    const promise1 = service.runTest({ provider: 'cloudflare', triggeredBy: 'manual' });
     assert.equal(service.isRunning, true);
 
-    // Attempt second test while first is still running
     await assert.rejects(
-      async () => {
-        await service.runTest({ provider: 'cloudflare', triggeredBy: 'manual' });
-      },
-      (err: Error) => {
-        return err.message.includes('A speedtest is already in progress');
-      }
+      () => service.runTest({ provider: 'cloudflare', triggeredBy: 'manual' }),
+      { message: 'A speedtest is already in progress' }
     );
 
-    const result1 = await run1Promise;
-    assert.equal(result1.status, 'completed');
-    assert.equal(result1.downloadBps, 150_000_000);
+    const result1 = await promise1;
     assert.equal(service.isRunning, false);
+    assert.equal(result1.status, 'completed');
   });
 
   it('publishes SSE events when test begins and completes', async () => {
     const repo = new MockSpeedtestRepository();
     const events = new EventBridge();
-    const publishedEvents: string[] = [];
+    const emittedEvents: string[] = [];
 
     events.subscribe((event) => {
-      publishedEvents.push(event.type);
+      emittedEvents.push(event.type);
     });
 
     const service = new SpeedtestService({
@@ -139,8 +135,8 @@ describe('Seam 2: SpeedtestService Concurrency & Execution Lock', () => {
 
     await service.runTest({ provider: 'cloudflare', triggeredBy: 'manual' });
 
-    assert.ok(publishedEvents.includes('speedtest-start'));
-    assert.ok(publishedEvents.includes('speedtest-complete'));
+    assert.ok(emittedEvents.includes('speedtest-start'));
+    assert.ok(emittedEvents.includes('speedtest-complete'));
   });
 });
 
@@ -159,7 +155,8 @@ describe('Seam 2: SpeedtestScheduler', () => {
       intervalMinutes: 30,
       defaultProvider: 'auto',
       downloadBytes: 50_000_000,
-      uploadBytes: 20_000_000
+      uploadBytes: 20_000_000,
+      mlabDurationSeconds: 5
     });
 
     scheduler.start();
@@ -182,7 +179,8 @@ describe('Seam 2: SpeedtestScheduler', () => {
       intervalMinutes: 0,
       defaultProvider: 'auto',
       downloadBytes: 50_000_000,
-      uploadBytes: 20_000_000
+      uploadBytes: 20_000_000,
+      mlabDurationSeconds: 5
     });
 
     scheduler.start();

@@ -24,7 +24,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const stored = localStorage.getItem(STORAGE_PROVIDER_KEY);
-        if (stored === 'auto' || stored === 'cloudflare' || stored === 'fast') {
+        if (stored === 'auto' || stored === 'cloudflare' || stored === 'mlab' || stored === 'fast') {
           return stored;
         }
       } catch {
@@ -119,12 +119,64 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
     }
   };
 
+  const getBadgeInfo = (result: SpeedtestResultDTO): { label: string; bg: string; color: string } => {
+    if (result.source === 'router') {
+      return {
+        label: t('dashboard.speedtest_badge_router'),
+        bg: 'rgba(59, 130, 246, 0.15)',
+        color: '#3b82f6'
+      };
+    }
+    switch (result.provider) {
+      case 'mlab':
+        return {
+          label: t('dashboard.speedtest_badge_mlab'),
+          bg: 'rgba(16, 185, 129, 0.15)',
+          color: '#10b981'
+        };
+      case 'cloudflare':
+        return {
+          label: t('dashboard.speedtest_badge_cloudflare'),
+          bg: 'rgba(249, 115, 22, 0.15)',
+          color: '#f97316'
+        };
+      case 'fast':
+        return {
+          label: t('dashboard.speedtest_badge_fast'),
+          bg: 'rgba(168, 85, 247, 0.15)',
+          color: '#a855f7'
+        };
+      default:
+        return {
+          label: t('dashboard.speedtest_source_backend'),
+          bg: 'rgba(148, 163, 184, 0.15)',
+          color: 'var(--muted)'
+        };
+    }
+  };
+
+  const getRunButtonLabel = (): string => {
+    if (isRunning) return t('dashboard.speedtest_running');
+    switch (provider) {
+      case 'mlab':
+        return `${t('dashboard.speedtest_run')} (M-Lab)`;
+      case 'cloudflare':
+        return `${t('dashboard.speedtest_run')} (Cloudflare)`;
+      case 'fast':
+        return `${t('dashboard.speedtest_run')} (Fast.com)`;
+      default:
+        return t('dashboard.speedtest_run');
+    }
+  };
+
+  const badge = latestResult ? getBadgeInfo(latestResult) : null;
+
   return (
     <Card className="speedtest-block">
       <div className="speedtest-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ fontSize: '18px' }}>🚀</span>
-          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600 }}>{t('dashboard.speedtest')}</h3>
+          <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--fg)' }}>{t('dashboard.speedtest')}</h3>
         </div>
         <select
           className="speedtest-provider-select"
@@ -135,13 +187,14 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
             fontSize: '12px',
             padding: '3px 8px',
             borderRadius: '6px',
-            border: '1px solid var(--color-border, #334155)',
-            background: 'var(--color-bg-subtle, #1e293b)',
-            color: 'var(--color-text, #f8fafc)',
+            border: '1px solid var(--border)',
+            background: 'var(--card)',
+            color: 'var(--fg)',
             cursor: isRunning ? 'not-allowed' : 'pointer'
           }}
         >
           <option value="auto">{t('dashboard.speedtest_provider_auto')}</option>
+          <option value="mlab">{t('dashboard.speedtest_provider_mlab')}</option>
           <option value="cloudflare">{t('dashboard.speedtest_provider_cloudflare')}</option>
           <option value="fast">{t('dashboard.speedtest_provider_fast')}</option>
         </select>
@@ -154,7 +207,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
           </div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#93c5fd' }}>
             {latestResult ? formatMbps(latestResult.downloadBps) : '—'}
-            <span style={{ fontSize: '13px', fontWeight: 400, color: '#94a3b8', marginLeft: '4px' }}>Mbps</span>
+            <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--muted)', marginLeft: '4px' }}>Mbps</span>
           </div>
         </div>
 
@@ -164,38 +217,39 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
           </div>
           <div style={{ fontSize: '24px', fontWeight: 700, color: '#6ee7b7' }}>
             {latestResult ? formatMbps(latestResult.uploadBps) : '—'}
-            <span style={{ fontSize: '13px', fontWeight: 400, color: '#94a3b8', marginLeft: '4px' }}>Mbps</span>
+            <span style={{ fontSize: '13px', fontWeight: 400, color: 'var(--muted)', marginLeft: '4px' }}>Mbps</span>
           </div>
         </div>
       </div>
 
-      <div className="speedtest-details" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--color-text-muted, #94a3b8)', marginBottom: '14px' }}>
+      <div className="speedtest-details" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--muted)', marginBottom: '14px' }}>
         <div style={{ display: 'flex', gap: '12px' }}>
           <span>
             {t('dashboard.speedtest_ping')}:{' '}
-            <strong style={{ color: 'var(--color-text, #f8fafc)' }}>
+            <strong style={{ color: 'var(--fg)' }}>
               {latestResult ? `${latestResult.pingMs} ms` : '—'}
             </strong>
           </span>
           {latestResult && latestResult.jitterMs > 0 && (
             <span>
               {t('dashboard.speedtest_jitter')}:{' '}
-              <strong style={{ color: 'var(--color-text, #f8fafc)' }}>{latestResult.jitterMs} ms</strong>
+              <strong style={{ color: 'var(--fg)' }}>{latestResult.jitterMs} ms</strong>
             </span>
           )}
         </div>
-        {latestResult && (
+        {badge && (
           <span
-            className={`speedtest-source-badge badge-${latestResult.source}`}
+            className={`speedtest-source-badge badge-${latestResult?.source}`}
             style={{
               fontSize: '11px',
               padding: '2px 6px',
               borderRadius: '4px',
-              background: latestResult.source === 'router' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(148, 163, 184, 0.2)',
-              color: latestResult.source === 'router' ? '#60a5fa' : '#cbd5e1'
+              fontWeight: 500,
+              background: badge.bg,
+              color: badge.color
             }}
           >
-            {latestResult.source === 'router' ? t('dashboard.speedtest_source_router') : t('dashboard.speedtest_source_backend')}
+            {badge.label}
           </span>
         )}
       </div>
@@ -206,8 +260,8 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
         </div>
       )}
 
-      <div className="speedtest-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--color-border, #334155)' }}>
-        <span style={{ fontSize: '11px', color: 'var(--color-text-muted, #64748b)' }}>
+      <div className="speedtest-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '8px', borderTop: '1px solid var(--border)' }}>
+        <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
           {latestResult ? `${t('dashboard.speedtest_last_tested')}: ${formatTestTime(latestResult.createdAt)}` : t('dashboard.speedtest_never')}
         </span>
         <button
@@ -232,7 +286,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
               <span>{t('dashboard.speedtest_running')}</span>
             </>
           ) : (
-            t('dashboard.speedtest_run')
+            getRunButtonLabel()
           )}
         </button>
       </div>

@@ -138,7 +138,8 @@ export async function buildApp(
             return routerId ? scheduler?.getAdapter(routerId) ?? null : null;
           },
           downloadBytes: speedtestConfig.downloadBytes,
-          uploadBytes: speedtestConfig.uploadBytes
+          uploadBytes: speedtestConfig.uploadBytes,
+          mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
         });
 
   registerSpeedtestRoutes(app, { speedtestService: speedtest });
