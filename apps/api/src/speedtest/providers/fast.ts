@@ -26,8 +26,9 @@ export class FastSpeedtestProvider implements SpeedtestProvider {
 
       const pingMs = pingRes ? Math.round(performance.now() - pingStart) : 25;
 
-      // Stream a download payload from Netflix Open Connect CDN
-      // Fast.com uses https://*.ipv4.cph001.ix.nflxvideo.net/speedtest/range/0-25000000
+      // Fast.com API endpoint: requires a valid Netflix API token.
+      // If unavailable or token missing, the endpoint returns 403/401 — in that
+      // case we report a failed result rather than fabricating a measurement.
       const dlStart = performance.now();
       const dlRes = await this.fetchWithTimeout(
         'https://api.fast.com/netflix/speedtest/v2?https=true',
@@ -35,18 +36,28 @@ export class FastSpeedtestProvider implements SpeedtestProvider {
         this.timeoutMs
       ).catch(() => null);
 
-      let bytesRead = 5_000_000;
-      if (dlRes && dlRes.ok) {
-        const buffer = await dlRes.arrayBuffer();
-        bytesRead = Math.max(bytesRead, buffer.byteLength);
+      if (!dlRes || !dlRes.ok) {
+        const statusCode = dlRes?.status ?? 0;
+        return {
+          downloadBps: 0,
+          uploadBps: 0,
+          pingMs,
+          jitterMs: 0,
+          provider: 'fast',
+          source: 'backend',
+          status: 'failed',
+          errorMessage: `Fast.com API returned status ${statusCode} — a valid API token may be required`
+        };
       }
 
+      const buffer = await dlRes.arrayBuffer();
+      const bytesRead = buffer.byteLength;
       const durationSeconds = Math.max(0.001, (performance.now() - dlStart) / 1000);
       const downloadBps = Math.round((bytesRead * 8) / durationSeconds);
 
       return {
         downloadBps,
-        uploadBps: 0, // Fast.com primarily measures download
+        uploadBps: 0, // Fast.com measures download only
         pingMs,
         jitterMs: 0,
         provider: 'fast',

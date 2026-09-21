@@ -127,9 +127,9 @@ export class SpeedtestRepository {
   async purgeOlderThan(days: number): Promise<number> {
     const query = `
       DELETE FROM speedtest_result
-      WHERE created_at < NOW() - ($1 || ' days')::INTERVAL;
+      WHERE created_at < NOW() - INTERVAL '1 day' * $1::int;
     `;
-    const result = await this.pool.query(query, [days]);
+    const result = await this.pool.query(query, [Math.floor(days)]);
     return result.rowCount ?? 0;
   }
 }

@@ -17,7 +17,7 @@ export interface RetentionPolicy {
   /** Investigation content, days. Default ~30. */
   readonly investigationDays: number;
   /** Speedtest results, days. Default ~90. */
-  readonly speedtestDays?: number;
+  readonly speedtestDays: number;
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = {
@@ -46,7 +46,7 @@ export function loadRetentionPolicy(): RetentionPolicy {
       'RETENTION_INVESTIGATION_DAYS',
       DEFAULT_RETENTION.investigationDays
     ),
-    speedtestDays: envDays('RETENTION_SPEEDTEST_DAYS', DEFAULT_RETENTION.speedtestDays ?? 90)
+    speedtestDays: envDays('RETENTION_SPEEDTEST_DAYS', DEFAULT_RETENTION.speedtestDays)
   };
 }
 
@@ -64,8 +64,7 @@ export function retentionCutoff(
   key: keyof RetentionPolicy,
   clock: RetentionClock = systemClock
 ): Date {
-  const days = policy[key] ?? 90;
-  return new Date(clock.now().getTime() - days * 24 * 60 * 60 * 1000);
+  return new Date(clock.now().getTime() - policy[key] * 24 * 60 * 60 * 1000);
 }
 
 export interface PurgeResult {

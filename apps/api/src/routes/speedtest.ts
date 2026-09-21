@@ -27,10 +27,6 @@ export function registerSpeedtestRoutes(
     async (request, reply) => {
       if (!requireAuth(request, reply)) return;
 
-      if (speedtestService.isRunning) {
-        return reply.code(409).send({ error: 'speedtest_already_running' });
-      }
-
       const body = (request.body as SpeedtestRunRequest | undefined) ?? {};
       const provider = body.provider as SpeedtestProviderType | undefined;
 

@@ -67,11 +67,19 @@ describe('retention policy', () => {
   });
 
   it('computes cutoffs from an injected clock (pure math)', () => {
-    const policy = { telemetryDays: 90, presenceDays: 365, auditDays: 365, investigationDays: 30 };
+    const policy = {
+      telemetryDays: 90,
+      presenceDays: 365,
+      auditDays: 365,
+      investigationDays: 30,
+      speedtestDays: 90
+    };
     const telemetryCutoff = retentionCutoff(policy, 'telemetryDays', fixedClock);
     assert.equal(telemetryCutoff.toISOString(), '2026-06-07T00:00:00.000Z');
     const investigationCutoff = retentionCutoff(policy, 'investigationDays', fixedClock);
     assert.equal(investigationCutoff.toISOString(), '2026-08-06T00:00:00.000Z');
+    const speedtestCutoff = retentionCutoff(policy, 'speedtestDays', fixedClock);
+    assert.equal(speedtestCutoff.toISOString(), '2026-06-07T00:00:00.000Z');
   });
 });
 
@@ -111,7 +119,7 @@ describe('retention purges', () => {
     const results = await retention.purgeAll(DEFAULT_RETENTION, fixedClock);
     assert.deepEqual(
       results.map((r) => r.category),
-      ['telemetry', 'presence', 'audit', 'investigation', 'investigation_session']
+      ['telemetry', 'presence', 'audit', 'investigation', 'investigation_session', 'speedtest']
     );
   });
 });

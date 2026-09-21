@@ -50,9 +50,9 @@ export interface BuildAppOptions {
 export async function buildApp(
   options: BuildAppOptions | pg.Pool
 ): Promise<FastifyInstance> {
-  const { pool, scheduler, eventBridge, trustProxy } =
+  const { pool, scheduler, eventBridge, trustProxy, speedtestService } =
     ('query' in options && typeof options.query === 'function')
-      ? { pool: options, scheduler: undefined, eventBridge: undefined, trustProxy: undefined }
+      ? { pool: options, scheduler: undefined, eventBridge: undefined, trustProxy: undefined, speedtestService: undefined }
       : (options as BuildAppOptions);
 
   const app = Fastify({
@@ -68,11 +68,9 @@ export async function buildApp(
   });
 
   await app.register(cookie);
-  await app.register(rateLimit, {
-    global: true,
-    max: 1000,
-    timeWindow: '1 minute'
-  });
+  // Rate limiting is configured per-route (speedtest routes have their own limits).
+  // global: false ensures no blanket limit silently covers SSE streams or auth routes.
+  await app.register(rateLimit, { global: false });
 
   // Global error handler: unhandled failures return a clean JSON error —
   // never connection strings, stack traces, or driver messages (which can
@@ -128,19 +126,14 @@ export async function buildApp(
   });
 
   const speedtestConfig = loadSpeedtestConfig();
-  const speedtest =
-    options && typeof options === 'object' && 'speedtestService' in options && options.speedtestService
-      ? options.speedtestService
-      : new SpeedtestService({
-          repository: new SpeedtestRepository(pool),
-          events,
-          getRouterAdapter: (routerId) => {
-            return routerId ? scheduler?.getAdapter(routerId) ?? null : null;
-          },
-          downloadBytes: speedtestConfig.downloadBytes,
-          uploadBytes: speedtestConfig.uploadBytes,
-          mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
-        });
+  const speedtest = speedtestService ?? new SpeedtestService({
+    repository: new SpeedtestRepository(pool),
+    events,
+    getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
+    downloadBytes: speedtestConfig.downloadBytes,
+    uploadBytes: speedtestConfig.uploadBytes,
+    mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
+  });
 
   registerSpeedtestRoutes(app, { speedtestService: speedtest });
 

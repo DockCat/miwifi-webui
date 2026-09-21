@@ -71,6 +71,26 @@ describe('Seam 1: FastSpeedtestProvider', () => {
     assert.equal(result.status, 'completed');
     assert.ok(result.downloadBps > 0);
   });
+
+  it('fails safely when Fast.com API returns 403 (missing token)', async () => {
+    const mockFetch = (async (url: string | URL | Request) => {
+      const parsed = new URL(String(url));
+      if (parsed.hostname === 'fast.com') {
+        return new Response('', { status: 200 });
+      }
+      if (parsed.hostname === 'api.fast.com') {
+        return new Response('Forbidden', { status: 403 });
+      }
+      return new Response('', { status: 200 });
+    }) as typeof fetch;
+
+    const provider = new FastSpeedtestProvider({ fetchFn: mockFetch });
+    const result = await provider.run();
+
+    assert.equal(result.provider, 'fast');
+    assert.equal(result.status, 'failed');
+    assert.ok(result.errorMessage?.includes('403'));
+  });
 });
 
 describe('Seam 1: AutoSpeedtestProvider (Router first with fallback)', () => {
