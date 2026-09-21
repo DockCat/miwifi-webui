@@ -49,7 +49,13 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-miwifi}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miwifi-secret}
-      POSTGRES_DB: ${POSTGRES_DB:-miwifi}
+    # Asynchronous WAL commits prevent disk I/O thrashing on consumer storage (ADR 0005)
+    command:
+      - postgres
+      - -c
+      - synchronous_commit=off
+      - -c
+      - wal_writer_delay=200ms
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -86,6 +92,9 @@ services:
       RETENTION_PRESENCE_DAYS: ${RETENTION_PRESENCE_DAYS:-365}
       RETENTION_AUDIT_DAYS: ${RETENTION_AUDIT_DAYS:-365}
       RETENTION_INVESTIGATION_DAYS: ${RETENTION_INVESTIGATION_DAYS:-30}
+      POLLING_STATUS_INTERVAL_MS: ${POLLING_STATUS_INTERVAL_MS:-15000}
+      POLLING_INVENTORY_INTERVAL_MS: ${POLLING_INVENTORY_INTERVAL_MS:-60000}
+      POLLING_TELEMETRY_INTERVAL_MS: ${POLLING_TELEMETRY_INTERVAL_MS:-60000}
     depends_on:
       postgres:
         condition: service_healthy
@@ -328,6 +337,9 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `RETENTION_PRESENCE_DAYS` | No | `365` | Device presence event retention period (days) |
 | `RETENTION_AUDIT_DAYS` | No | `365` | Security/audit event retention period (days) |
 | `RETENTION_INVESTIGATION_DAYS` | No | `30` | AI investigation session retention period (days) |
+| `POLLING_STATUS_INTERVAL_MS` | No | `15000` | Router live status polling interval in ms (in-memory + SSE) |
+| `POLLING_INVENTORY_INTERVAL_MS` | No | `60000` | Device inventory polling and presence reconciliation interval in ms |
+| `POLLING_TELEMETRY_INTERVAL_MS` | No | `60000` | Historical telemetry snapshot persistence interval in ms |
 
 ---
 

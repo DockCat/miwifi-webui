@@ -22,10 +22,20 @@ beforeEach(() => {
   delete process.env.API_PORT;
   delete process.env.API_HOST;
   delete process.env.DATABASE_URL;
+  delete process.env.POLLING_STATUS_INTERVAL_MS;
+  delete process.env.POLLING_INVENTORY_INTERVAL_MS;
+  delete process.env.POLLING_TELEMETRY_INTERVAL_MS;
 });
 
 afterEach(() => {
-  for (const key of ['DATABASE_URL', 'API_PORT', 'API_HOST']) {
+  for (const key of [
+    'DATABASE_URL',
+    'API_PORT',
+    'API_HOST',
+    'POLLING_STATUS_INTERVAL_MS',
+    'POLLING_INVENTORY_INTERVAL_MS',
+    'POLLING_TELEMETRY_INTERVAL_MS'
+  ]) {
     const value = originalEnv[key];
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
@@ -80,5 +90,56 @@ describe('loadConfig', () => {
     const config = loadConfig({ dotenv: false });
     assert.equal(config.port, 8080);
     assert.equal(config.host, '0.0.0.0');
+  });
+
+  it('loads default polling intervals', () => {
+    withEnv({ DATABASE_URL: 'postgres://u:p@localhost:5432/db' });
+    const config = loadConfig({ dotenv: false });
+    assert.equal(config.polling.statusIntervalMs, 15_000);
+    assert.equal(config.polling.inventoryIntervalMs, 60_000);
+    assert.equal(config.polling.telemetryIntervalMs, 60_000);
+  });
+
+  it('accepts explicit polling intervals', () => {
+    withEnv({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      POLLING_STATUS_INTERVAL_MS: '20000',
+      POLLING_INVENTORY_INTERVAL_MS: '45000',
+      POLLING_TELEMETRY_INTERVAL_MS: '120000'
+    });
+    const config = loadConfig({ dotenv: false });
+    assert.equal(config.polling.statusIntervalMs, 20_000);
+    assert.equal(config.polling.inventoryIntervalMs, 45_000);
+    assert.equal(config.polling.telemetryIntervalMs, 120_000);
+  });
+
+  it('rejects invalid polling intervals', () => {
+    withEnv({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      POLLING_STATUS_INTERVAL_MS: '500' // < 1000ms
+    });
+    assert.throws(
+      () => loadConfig({ dotenv: false }),
+      /Invalid POLLING_STATUS_INTERVAL_MS value: 500. Must be an integer between 1000 and 2147483647 ms./
+    );
+
+    withEnv({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      POLLING_STATUS_INTERVAL_MS: '3000000000' // > 2^31 - 1
+    });
+    assert.throws(
+      () => loadConfig({ dotenv: false }),
+      /Invalid POLLING_STATUS_INTERVAL_MS value: 3000000000. Must be an integer between 1000 and 2147483647 ms./
+    );
+
+    withEnv({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      POLLING_STATUS_INTERVAL_MS: undefined,
+      POLLING_INVENTORY_INTERVAL_MS: 'abc'
+    });
+    assert.throws(
+      () => loadConfig({ dotenv: false }),
+      /Invalid POLLING_INVENTORY_INTERVAL_MS value/
+    );
   });
 });

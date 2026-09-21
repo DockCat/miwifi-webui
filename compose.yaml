@@ -10,6 +10,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-miwifi}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-miwifi-secret}
       POSTGRES_DB: ${POSTGRES_DB:-miwifi}
+    # ADR 0005: Asynchronous WAL commits prevent disk I/O thrashing on consumer storage
+    command:
+      - postgres
+      - -c
+      - synchronous_commit=off
+      - -c
+      - wal_writer_delay=200ms
     # Loopback-only: the API reaches postgres over the compose network; the
     # host port exists only for local development (pnpm db:migrate, tests).
     # Remove this mapping entirely for a pure compose deployment.
@@ -58,6 +65,9 @@ services:
       RETENTION_PRESENCE_DAYS: ${RETENTION_PRESENCE_DAYS:-365}
       RETENTION_AUDIT_DAYS: ${RETENTION_AUDIT_DAYS:-365}
       RETENTION_INVESTIGATION_DAYS: ${RETENTION_INVESTIGATION_DAYS:-30}
+      POLLING_STATUS_INTERVAL_MS: ${POLLING_STATUS_INTERVAL_MS:-15000}
+      POLLING_INVENTORY_INTERVAL_MS: ${POLLING_INVENTORY_INTERVAL_MS:-60000}
+      POLLING_TELEMETRY_INTERVAL_MS: ${POLLING_TELEMETRY_INTERVAL_MS:-60000}
     depends_on:
       postgres:
         condition: service_healthy

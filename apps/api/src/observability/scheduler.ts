@@ -18,23 +18,58 @@ import {
   reconcilePresence,
   MiWifiAdapter
 } from '@miwifi-webui/router-core';
-import type { NormalizedDevice } from '@miwifi-webui/router-core';
+import type { NormalizedDevice, PresenceEventKind } from '@miwifi-webui/router-core';
 import type { RouterRepository } from '../router/repository.js';
-import type { ObservabilityRepository } from './repository.js';
+import type {
+  ObservabilityRepository,
+  DeviceObservationUpdate,
+  PresenceEventInsert
+} from './repository.js';
 import type { EventBridge } from './event-bridge.js';
 import { loadRetentionPolicy, type RetentionPolicy } from '../retention/policy.js';
+import type { PollingIntervalConfig } from '../config.js';
 
-export interface PollingConfig {
-  readonly statusIntervalMs: number;
-  readonly inventoryIntervalMs: number;
-  readonly telemetryIntervalMs: number;
-}
+/**
+ * Re-exported alias so external callers (e.g. tests, main.ts) can reference
+ * `PollingConfig` without importing from config.ts directly. The authoritative
+ * shape lives in `PollingIntervalConfig`; keep the two in sync.
+ */
+export type PollingConfig = PollingIntervalConfig;
 
 export const DEFAULT_POLLING_CONFIG: PollingConfig = {
   statusIntervalMs: 15_000,
-  inventoryIntervalMs: 30_000,
+  inventoryIntervalMs: 60_000,
   telemetryIntervalMs: 60_000
 };
+
+/**
+ * 10-minute coarse heartbeat threshold (ADR 0005).
+ * Refreshes last_seen_at periodically for continuously online devices without
+ * flooding PostgreSQL with autocommit writes every polling cycle.
+ */
+const COARSE_HEARTBEAT_INTERVAL_MS = 10 * 60 * 1000;
+
+function isDeviceObservationDirty(
+  existing: { online: boolean; ip: string | null; name: string | null; lastSeenAt?: Date },
+  observed: { online: boolean; ip?: string; name?: string }
+): boolean {
+  if (existing.online !== observed.online) return true;
+  if (observed.ip !== undefined && existing.ip !== observed.ip) return true;
+  if (observed.name !== undefined && existing.name !== observed.name) return true;
+  // Design decision (ADR 0005): the coarse heartbeat refresh only applies to
+  // *online* devices. Offline devices have no meaningful `last_seen_at` to
+  // advance — their timestamp is intentionally frozen at the moment they went
+  // offline and is only updated again on the next ONLINE state transition.
+  // This means a device that stays offline indefinitely will never generate a
+  // heartbeat write, which is the desired behaviour.
+  if (observed.online) {
+    const lastSeenTime = existing.lastSeenAt ? new Date(existing.lastSeenAt).getTime() : 0;
+    if (Date.now() - lastSeenTime > COARSE_HEARTBEAT_INTERVAL_MS) {
+      return true;
+    }
+  }
+  return false;
+}
 
 interface ActiveRouter {
   readonly id: string;
@@ -213,7 +248,7 @@ export class PollingScheduler {
     }
   }
 
-  /** ~30s: device inventory + presence reconciliation. */
+  /** Periodic: device inventory + presence reconciliation (default 60s). */
   private async pollInventoryAll(): Promise<void> {
     for (const router of await this.activeRouters()) {
       try {
@@ -253,6 +288,8 @@ export class PollingScheduler {
         );
 
         // Apply inventory upserts + presence events.
+        const pendingUpdates = new Map<string, DeviceObservationUpdate>();
+
         for (const [key, entry] of observed) {
           const entryMacUpper = entry.device.mac?.toUpperCase();
           const existing =
@@ -275,38 +312,57 @@ export class PollingScheduler {
               mac: inserted.mac
             });
           } else {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: entry.device.online,
-              ip: entry.device.ip ?? null,
-              name: entry.device.name ?? null
-            });
+            // ADR 0005: Change-Detection Inventory (dirty checking).
+            // Skip database writes if status attributes have not changed and last_seen_at is recent (<10m).
+            if (isDeviceObservationDirty(existing, entry.device)) {
+              pendingUpdates.set(existing.id, {
+                id: existing.id,
+                online: entry.device.online,
+                ip: entry.device.ip ?? null,
+                name: entry.device.name ?? null
+              });
+            }
           }
         }
+
+        // Tuple of { db: record to persist, pub: payload to broadcast } so both
+        // halves travel together and can't diverge between the two loops.
+        const presenceEvents: Array<{
+          db: PresenceEventInsert;
+          pub: { routerId: string; deviceId: string; kind: PresenceEventKind; mac?: string | null };
+        }> = [];
 
         for (const event of events) {
           const existing = storedByKey.get(event.key);
           if (!existing) continue; // FIRST_SEEN handled above
-          await this.observabilityRepository.recordPresenceEvent(
-            existing.id,
-            router.id,
-            event.kind
-          );
-          if (event.kind === 'OFFLINE') {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: false
-            });
-          } else if (event.kind === 'ONLINE') {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: true
+          if (event.kind === 'OFFLINE' || event.kind === 'ONLINE') {
+            const prev = pendingUpdates.get(existing.id);
+            pendingUpdates.set(existing.id, {
+              id: existing.id,
+              online: event.kind === 'ONLINE',
+              ip: prev?.ip ?? existing.ip,
+              name: prev?.name ?? existing.name
             });
           }
-          this.events.publish('presence', {
-            routerId: router.id,
-            deviceId: existing.id,
-            kind: event.kind,
-            mac: existing.mac
+          presenceEvents.push({
+            db: { deviceId: existing.id, routerId: router.id, kind: event.kind },
+            pub: { routerId: router.id, deviceId: existing.id, kind: event.kind, mac: existing.mac }
           });
         }
+
+        // ADR 0005: Commit all pending observation updates and presence transitions
+        // in a single transaction to eliminate write amplification and guarantee atomicity.
+        if (pendingUpdates.size > 0 || presenceEvents.length > 0) {
+          await this.observabilityRepository.batchUpdateDeviceObservations(
+            Array.from(pendingUpdates.values()),
+            presenceEvents.map((pe) => pe.db)
+          );
+        }
+
+        for (const { pub } of presenceEvents) {
+          this.events.publish('presence', pub);
+        }
+
 
         const prevMap = this.latestDevices.get(router.id);
         const deviceMap = new Map<string, NormalizedDevice>();

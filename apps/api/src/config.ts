@@ -9,6 +9,12 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
+export interface PollingIntervalConfig {
+  readonly statusIntervalMs: number;
+  readonly inventoryIntervalMs: number;
+  readonly telemetryIntervalMs: number;
+}
+
 export interface AppConfig {
   readonly port: number;
   readonly host: string;
@@ -22,6 +28,7 @@ export interface AppConfig {
    * are ignored. `false` (default) ignores forwarded headers entirely.
    */
   readonly trustProxy: boolean | string;
+  readonly polling: PollingIntervalConfig;
 }
 
 /**
@@ -101,6 +108,25 @@ function parseTrustProxy(value: string | undefined): boolean | string {
   );
 }
 
+/** Minimum sane polling interval — sub-second intervals are never useful for router polling. */
+const MIN_INTERVAL_MS = 1_000;
+/**
+ * Maximum polling interval: INT32_MAX (≈24.8 days).
+ * Capped to this value because Node.js `setInterval` treats anything larger as 1 ms.
+ */
+const MAX_INTERVAL_MS = 2_147_483_647; // INT32_MAX
+
+function parseInterval(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number.parseInt(value.trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < MIN_INTERVAL_MS || parsed > MAX_INTERVAL_MS) {
+    throw new Error(
+      `Invalid ${name} value: ${value}. Must be an integer between ${MIN_INTERVAL_MS} and ${MAX_INTERVAL_MS} ms.`
+    );
+  }
+  return parsed;
+}
+
 export interface LoadConfigOptions {
   /**
    * Load a `.env` file when explicit environment variables are missing.
@@ -119,9 +145,31 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const databaseUrl = requireEnv('DATABASE_URL');
   const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
 
+  const statusIntervalMs = parseInterval(
+    process.env.POLLING_STATUS_INTERVAL_MS,
+    15_000,
+    'POLLING_STATUS_INTERVAL_MS'
+  );
+  const inventoryIntervalMs = parseInterval(
+    process.env.POLLING_INVENTORY_INTERVAL_MS,
+    60_000,
+    'POLLING_INVENTORY_INTERVAL_MS'
+  );
+  const telemetryIntervalMs = parseInterval(
+    process.env.POLLING_TELEMETRY_INTERVAL_MS,
+    60_000,
+    'POLLING_TELEMETRY_INTERVAL_MS'
+  );
+
+  const polling: PollingIntervalConfig = {
+    statusIntervalMs,
+    inventoryIntervalMs,
+    telemetryIntervalMs
+  };
+
   if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
     throw new Error('DATABASE_URL must be a postgres:// or postgresql:// connection string');
   }
 
-  return { port, host, databaseUrl, trustProxy };
+  return { port, host, databaseUrl, trustProxy, polling };
 }

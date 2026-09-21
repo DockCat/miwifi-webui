@@ -19,6 +19,19 @@ export interface DeviceRow {
   readonly lastSeenAt: Date;
 }
 
+export interface DeviceObservationUpdate {
+  readonly id: string;
+  readonly online: boolean;
+  readonly ip?: string | null;
+  readonly name?: string | null;
+}
+
+export interface PresenceEventInsert {
+  readonly deviceId: string;
+  readonly routerId: string;
+  readonly kind: PresenceEventKind;
+}
+
 export interface TelemetrySnapshotRow {
   readonly id: string;
   readonly routerId: string;
@@ -74,16 +87,71 @@ export class ObservabilityRepository {
     deviceId: string,
     fields: { online: boolean; ip?: string | null; name?: string | null }
   ): Promise<void> {
-    await this.pool.query(
-      `UPDATE device
-       SET online = $2,
-           last_seen_at = CASE WHEN $2 THEN now() ELSE last_seen_at END,
-           ip = COALESCE($3, ip),
-           name = COALESCE($4, name)
-       WHERE id = $1`,
-      [deviceId, fields.online, fields.ip ?? null, fields.name ?? null]
-    );
+    await this.batchUpdateDeviceObservations([
+      {
+        id: deviceId,
+        online: fields.online,
+        ip: fields.ip,
+        name: fields.name
+      }
+    ]);
   }
+
+  /**
+   * ADR 0005: Wrap device-observation updates and presence-event inserts in a
+   * single BEGIN … COMMIT block.
+   *
+   * **Atomicity**: all writes succeed or all roll back together.
+   * **I/O reduction**: the main benefit is eliminating per-autocommit fsync
+   * overhead when `synchronous_commit = off`. Each UPDATE/INSERT is still a
+   * separate server round-trip; this is not a single-statement bulk operation.
+   * A future migration to `UPDATE … FROM (VALUES …)` could collapse the
+   * round-trips further if that becomes a bottleneck.
+   */
+  async batchUpdateDeviceObservations(
+    updates: readonly DeviceObservationUpdate[],
+    presenceEvents: readonly PresenceEventInsert[] = []
+  ): Promise<void> {
+    if (updates.length === 0 && presenceEvents.length === 0) return;
+    const client = await this.pool.connect();
+    let clientError: Error | undefined;
+    try {
+      await client.query('BEGIN');
+      for (const update of updates) {
+        await client.query(
+          `UPDATE device
+           SET online = $2,
+               last_seen_at = CASE WHEN $2 THEN now() ELSE last_seen_at END,
+               ip = COALESCE($3, ip),
+               name = COALESCE($4, name)
+           WHERE id = $1`,
+          [update.id, update.online, update.ip ?? null, update.name ?? null]
+        );
+      }
+      for (const pe of presenceEvents) {
+        await client.query(
+          'INSERT INTO device_presence_event (device_id, router_id, kind) VALUES ($1, $2, $3)',
+          [pe.deviceId, pe.routerId, pe.kind]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        // ROLLBACK itself failed — the connection is tainted. Log so the
+        // infrastructure failure is observable before we destroy the client.
+        console.error('[observability] transaction rollback failed:', rollbackError);
+        // Flag connection error to pg-pool so the broken/tainted client is destroyed.
+        clientError =
+          rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
+      }
+      throw error;
+    } finally {
+      client.release(clientError);
+    }
+  }
+
 
   async recordPresenceEvent(
     deviceId: string,
