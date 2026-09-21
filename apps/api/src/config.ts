@@ -108,12 +108,20 @@ function parseTrustProxy(value: string | undefined): boolean | string {
   );
 }
 
+/** Minimum sane polling interval — sub-second intervals are never useful for router polling. */
+const MIN_INTERVAL_MS = 1_000;
+/**
+ * Maximum polling interval: INT32_MAX (≈24.8 days).
+ * Capped to this value because Node.js `setInterval` treats anything larger as 1 ms.
+ */
+const MAX_INTERVAL_MS = 2_147_483_647; // INT32_MAX
+
 function parseInterval(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === '') return fallback;
   const parsed = Number.parseInt(value.trim(), 10);
-  if (!Number.isInteger(parsed) || parsed < 1000 || parsed > 2_147_483_647) {
+  if (!Number.isInteger(parsed) || parsed < MIN_INTERVAL_MS || parsed > MAX_INTERVAL_MS) {
     throw new Error(
-      `Invalid ${name} value: ${value}. Must be an integer between 1000 and 2147483647 ms.`
+      `Invalid ${name} value: ${value}. Must be an integer between ${MIN_INTERVAL_MS} and ${MAX_INTERVAL_MS} ms.`
     );
   }
   return parsed;

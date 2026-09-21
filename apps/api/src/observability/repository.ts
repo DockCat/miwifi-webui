@@ -98,9 +98,15 @@ export class ObservabilityRepository {
   }
 
   /**
-   * ADR 0005: Batch update device observations and presence transitions
-   * inside a single transaction to eliminate per-update fsync operations
-   * and guarantee relational atomicity across state changes.
+   * ADR 0005: Wrap device-observation updates and presence-event inserts in a
+   * single BEGIN … COMMIT block.
+   *
+   * **Atomicity**: all writes succeed or all roll back together.
+   * **I/O reduction**: the main benefit is eliminating per-autocommit fsync
+   * overhead when `synchronous_commit = off`. Each UPDATE/INSERT is still a
+   * separate server round-trip; this is not a single-statement bulk operation.
+   * A future migration to `UPDATE … FROM (VALUES …)` could collapse the
+   * round-trips further if that becomes a bottleneck.
    */
   async batchUpdateDeviceObservations(
     updates: readonly DeviceObservationUpdate[],
@@ -133,6 +139,9 @@ export class ObservabilityRepository {
       try {
         await client.query('ROLLBACK');
       } catch (rollbackError) {
+        // ROLLBACK itself failed — the connection is tainted. Log so the
+        // infrastructure failure is observable before we destroy the client.
+        console.error('[observability] transaction rollback failed:', rollbackError);
         // Flag connection error to pg-pool so the broken/tainted client is destroyed.
         clientError =
           rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
@@ -142,6 +151,7 @@ export class ObservabilityRepository {
       client.release(clientError);
     }
   }
+
 
   async recordPresenceEvent(
     deviceId: string,

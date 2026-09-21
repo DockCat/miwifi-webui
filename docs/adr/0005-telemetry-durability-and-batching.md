@@ -29,8 +29,10 @@ We adopt an asynchronous durability and write-batching policy for the applicatio
 2. **Application-Level Change Detection (Dirty Checking)**:
    In `PollingScheduler.pollInventoryAll`, skip updating existing device database records if the observed state (`online`, `ip`, `name`) has not changed since the last persistence and `last_seen_at` is reasonably fresh (< 10 minutes).
 
+   _Offline devices are intentionally excluded from the 10-minute coarse heartbeat refresh. An offline device's `last_seen_at` is frozen at the moment it went offline and is only advanced on the next ONLINE transition. This avoids pointless writes for devices that may remain offline for days or weeks._
+
 3. **Transaction Batching for Device Updates**:
-   When device observations or presence transitions must be written to PostgreSQL, execute them inside a single transaction block (`BEGIN ... COMMIT`) or batched statement rather than individual autocommit queries.
+   When device observations or presence transitions must be written to PostgreSQL, execute them inside a single transaction block (`BEGIN ... COMMIT`) rather than individual autocommit queries. The implementation issues N sequential round-trips within that transaction (one `UPDATE` per changed device, one `INSERT` per presence event). This eliminates per-autocommit fsync overhead under `synchronous_commit = off`. A future migration to a single unnested `UPDATE … FROM (VALUES …)` statement could further reduce round-trips if that becomes a measurable bottleneck.
 
 4. **Configurable Polling Intervals**:
    Allow administrators to configure polling intervals via environment variables (`POLLING_STATUS_INTERVAL_MS`, `POLLING_INVENTORY_INTERVAL_MS`, `POLLING_TELEMETRY_INTERVAL_MS`), with default inventory polling relaxed from 30s to 60s.

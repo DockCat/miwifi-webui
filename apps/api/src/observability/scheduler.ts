@@ -29,6 +29,11 @@ import type { EventBridge } from './event-bridge.js';
 import { loadRetentionPolicy, type RetentionPolicy } from '../retention/policy.js';
 import type { PollingIntervalConfig } from '../config.js';
 
+/**
+ * Re-exported alias so external callers (e.g. tests, main.ts) can reference
+ * `PollingConfig` without importing from config.ts directly. The authoritative
+ * shape lives in `PollingIntervalConfig`; keep the two in sync.
+ */
 export type PollingConfig = PollingIntervalConfig;
 
 export const DEFAULT_POLLING_CONFIG: PollingConfig = {
@@ -51,6 +56,12 @@ function isDeviceObservationDirty(
   if (existing.online !== observed.online) return true;
   if (observed.ip !== undefined && existing.ip !== observed.ip) return true;
   if (observed.name !== undefined && existing.name !== observed.name) return true;
+  // Design decision (ADR 0005): the coarse heartbeat refresh only applies to
+  // *online* devices. Offline devices have no meaningful `last_seen_at` to
+  // advance — their timestamp is intentionally frozen at the moment they went
+  // offline and is only updated again on the next ONLINE state transition.
+  // This means a device that stays offline indefinitely will never generate a
+  // heartbeat write, which is the desired behaviour.
   if (observed.online) {
     const lastSeenTime = existing.lastSeenAt ? new Date(existing.lastSeenAt).getTime() : 0;
     if (Date.now() - lastSeenTime > COARSE_HEARTBEAT_INTERVAL_MS) {
@@ -314,22 +325,16 @@ export class PollingScheduler {
           }
         }
 
-        const presenceEventsToRecord: PresenceEventInsert[] = [];
-        const presenceEventsToPublish: Array<{
-          routerId: string;
-          deviceId: string;
-          kind: PresenceEventKind;
-          mac?: string | null;
+        // Tuple of { db: record to persist, pub: payload to broadcast } so both
+        // halves travel together and can't diverge between the two loops.
+        const presenceEvents: Array<{
+          db: PresenceEventInsert;
+          pub: { routerId: string; deviceId: string; kind: PresenceEventKind; mac?: string | null };
         }> = [];
 
         for (const event of events) {
           const existing = storedByKey.get(event.key);
           if (!existing) continue; // FIRST_SEEN handled above
-          presenceEventsToRecord.push({
-            deviceId: existing.id,
-            routerId: router.id,
-            kind: event.kind
-          });
           if (event.kind === 'OFFLINE' || event.kind === 'ONLINE') {
             const prev = pendingUpdates.get(existing.id);
             pendingUpdates.set(existing.id, {
@@ -339,26 +344,25 @@ export class PollingScheduler {
               name: prev?.name ?? existing.name
             });
           }
-          presenceEventsToPublish.push({
-            routerId: router.id,
-            deviceId: existing.id,
-            kind: event.kind,
-            mac: existing.mac
+          presenceEvents.push({
+            db: { deviceId: existing.id, routerId: router.id, kind: event.kind },
+            pub: { routerId: router.id, deviceId: existing.id, kind: event.kind, mac: existing.mac }
           });
         }
 
         // ADR 0005: Commit all pending observation updates and presence transitions
         // in a single transaction to eliminate write amplification and guarantee atomicity.
-        if (pendingUpdates.size > 0 || presenceEventsToRecord.length > 0) {
+        if (pendingUpdates.size > 0 || presenceEvents.length > 0) {
           await this.observabilityRepository.batchUpdateDeviceObservations(
             Array.from(pendingUpdates.values()),
-            presenceEventsToRecord
+            presenceEvents.map((pe) => pe.db)
           );
         }
 
-        for (const pe of presenceEventsToPublish) {
-          this.events.publish('presence', pe);
+        for (const { pub } of presenceEvents) {
+          this.events.publish('presence', pub);
         }
+
 
         const prevMap = this.latestDevices.get(router.id);
         const deviceMap = new Map<string, NormalizedDevice>();
