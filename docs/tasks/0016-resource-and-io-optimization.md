@@ -15,11 +15,9 @@ Remediate and optimize system resource consumption and disk I/O write queue satu
 
 In:
 - **PostgreSQL Compose Configuration**:
-  - Update `compose.yaml` and `compose-dev.yml` to launch PostgreSQL with:
+  - Update `compose.yaml` (and local developer overrides such as `compose-dev.yml`) to launch PostgreSQL with:
     - `-c synchronous_commit=off`
     - `-c wal_writer_delay=200ms`
-    - `-c commit_delay=2000`
-    - `-c commit_siblings=5`
 - **Application Configuration**:
   - Add configurable polling intervals in `apps/api/src/config.ts` via environment variables:
     - `POLLING_STATUS_INTERVAL_MS` (default: 15,000)
@@ -47,7 +45,7 @@ Out of:
 
 ## Acceptance criteria
 
-1. PostgreSQL in `compose.yaml` and `compose-dev.yml` is configured with `synchronous_commit=off` and tuned WAL flush delays.
+1. PostgreSQL in `compose.yaml` (and local `compose-dev.yml`) is configured with `synchronous_commit=off` and tuned WAL flush delay (`wal_writer_delay=200ms`).
 2. Polling intervals can be tuned via `POLLING_*` environment variables with sensible relaxed defaults.
 3. When devices report the same state across successive inventory polls, zero database `UPDATE` queries are executed for those unchanged devices.
 4. When device updates occur, they are committed in a single transaction batch rather than individual autocommit queries.
@@ -63,5 +61,5 @@ Status: `DONE` — completed 2026-09-21.
 - `pnpm --filter @miwifi-webui/router-core test`: 59 tests pass.
 - `pnpm --filter @miwifi-webui/web test`: 63 tests pass.
 - `pnpm -r build`: Clean production builds across all packages (`dist/main.js`: 163.1 kB, Web JS: 305.92 kB).
-- Compose configurations updated with asynchronous WAL commit parameters and environment variable defaults in `compose.yaml` and `compose-dev.yml`.
+- Compose configurations updated with asynchronous WAL commit parameters and environment variable defaults in `compose.yaml` (and local `compose-dev.yml`).
 

@@ -17,10 +17,6 @@ services:
       - synchronous_commit=off
       - -c
       - wal_writer_delay=200ms
-      - -c
-      - commit_delay=2000
-      - -c
-      - commit_siblings=5
     # Loopback-only: the API reaches postgres over the compose network; the
     # host port exists only for local development (pnpm db:migrate, tests).
     # Remove this mapping entirely for a pure compose deployment.

@@ -111,8 +111,10 @@ function parseTrustProxy(value: string | undefined): boolean | string {
 function parseInterval(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === '') return fallback;
   const parsed = Number.parseInt(value.trim(), 10);
-  if (!Number.isInteger(parsed) || parsed < 1000) {
-    throw new Error(`Invalid ${name} value: ${value}. Must be an integer >= 1000 ms.`);
+  if (!Number.isInteger(parsed) || parsed < 1000 || parsed > 2_147_483_647) {
+    throw new Error(
+      `Invalid ${name} value: ${value}. Must be an integer between 1000 and 2147483647 ms.`
+    );
   }
   return parsed;
 }

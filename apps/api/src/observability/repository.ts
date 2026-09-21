@@ -116,7 +116,11 @@ export class ObservabilityRepository {
       }
       await client.query('COMMIT');
     } catch (error) {
-      await client.query('ROLLBACK');
+      try {
+        await client.query('ROLLBACK');
+      } catch {
+        // Suppress rollback errors so the primary transaction error is preserved.
+      }
       throw error;
     } finally {
       client.release();

@@ -120,7 +120,16 @@ describe('loadConfig', () => {
     });
     assert.throws(
       () => loadConfig({ dotenv: false }),
-      /Invalid POLLING_STATUS_INTERVAL_MS value: 500. Must be an integer >= 1000 ms./
+      /Invalid POLLING_STATUS_INTERVAL_MS value: 500. Must be an integer between 1000 and 2147483647 ms./
+    );
+
+    withEnv({
+      DATABASE_URL: 'postgres://u:p@localhost:5432/db',
+      POLLING_STATUS_INTERVAL_MS: '3000000000' // > 2^31 - 1
+    });
+    assert.throws(
+      () => loadConfig({ dotenv: false }),
+      /Invalid POLLING_STATUS_INTERVAL_MS value: 3000000000. Must be an integer between 1000 and 2147483647 ms./
     );
 
     withEnv({

@@ -212,6 +212,11 @@ describe('observability route wiring with scheduler', () => {
       recordPresenceEvent: async (_devId: string, _routerId: string, kind: string) => {
         recordedEventKind = kind;
       },
+      batchUpdateDeviceObservations: async (updates: Array<{ id: string; online: boolean }>) => {
+        if (updates.length > 0) {
+          updatedOnlineState = updates[0]!.online;
+        }
+      },
       updateDeviceObservation: async (_devId: string, fields: { online: boolean }) => {
         updatedOnlineState = fields.online;
       }
@@ -282,6 +287,11 @@ describe('observability route wiring with scheduler', () => {
       ],
       recordPresenceEvent: async (_devId: string, _routerId: string, kind: string) => {
         recordedEventKind = kind;
+      },
+      batchUpdateDeviceObservations: async (updates: Array<{ id: string; online: boolean }>) => {
+        if (updates.length > 0) {
+          updatedOnlineState = updates[0]!.online;
+        }
       },
       updateDeviceObservation: async (_devId: string, fields: { online: boolean }) => {
         updatedOnlineState = fields.online;

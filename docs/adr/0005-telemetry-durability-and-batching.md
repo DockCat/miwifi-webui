@@ -22,11 +22,9 @@ Investigations identified two compounding factors:
 We adopt an asynchronous durability and write-batching policy for the application's PostgreSQL deployment and polling scheduler:
 
 1. **Asynchronous WAL Commits in Docker Compose**:
-   Configure the PostgreSQL service in `compose.yaml` and `compose-dev.yml` with:
+   Configure the PostgreSQL service in `compose.yaml` (and local developer overrides such as `compose-dev.yml`) with:
    - `synchronous_commit = off`
    - `wal_writer_delay = 200ms`
-   - `commit_delay = 2000` (microseconds)
-   - `commit_siblings = 5`
 
 2. **Application-Level Change Detection (Dirty Checking)**:
    In `PollingScheduler.pollInventoryAll`, skip updating existing device database records if the observed state (`online`, `ip`, `name`) has not changed since the last persistence and `last_seen_at` is reasonably fresh (< 10 minutes).
@@ -39,7 +37,7 @@ We adopt an asynchronous durability and write-batching policy for the applicatio
 
 ## Rationale
 
-- **Durability Trade-off**: `synchronous_commit = off` guarantees relational consistency and crash recovery: transactions are strictly ACID, WAL replay maintains referential integrity, and database corruption does not occur. The only consequence of an unclean operating system crash or power outage is the loss of the most recent ~200–600ms of committed transactions. Since telemetry and heartbeats are periodic sampled events, losing fractions of a second of transient samples during a sudden power cut is completely harmless for a router dashboard.
+- **Durability Trade-off**: `synchronous_commit = off` guarantees relational consistency and crash recovery: transactions are strictly ACID, WAL replay maintains referential integrity, and database corruption does not occur. The only consequence of an unclean operating system crash or power outage is the loss of the most recent ~200–600ms of committed transactions. Since telemetry and heartbeats are periodic sampled events, losing fractions of a second of transient samples during a sudden power cut is completely harmless for a router dashboard. Note that `commit_delay` is omitted because in PostgreSQL it only takes effect when synchronous_commit is on.
 - **I/O Relief**: Grouping commits asynchronously reduces disk `fsync` operations by over 95%, eliminating the severe I/O queue wait on consumer hardware.
 - **Reduced Write Amplification**: Filtering out unchanged device heartbeats prevents unnecessary writes to table blocks, indexes, and WAL for devices that remain statically connected for days or weeks.
 

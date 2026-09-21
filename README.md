@@ -56,10 +56,6 @@ services:
       - synchronous_commit=off
       - -c
       - wal_writer_delay=200ms
-      - -c
-      - commit_delay=2000
-      - -c
-      - commit_siblings=5
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:

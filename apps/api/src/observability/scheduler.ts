@@ -18,7 +18,7 @@ import {
   reconcilePresence,
   MiWifiAdapter
 } from '@miwifi-webui/router-core';
-import type { NormalizedDevice } from '@miwifi-webui/router-core';
+import type { NormalizedDevice, PresenceEventKind } from '@miwifi-webui/router-core';
 import type { RouterRepository } from '../router/repository.js';
 import type { ObservabilityRepository, DeviceObservationUpdate } from './repository.js';
 import type { EventBridge } from './event-bridge.js';
@@ -213,7 +213,7 @@ export class PollingScheduler {
     }
   }
 
-  /** ~30s: device inventory + presence reconciliation. */
+  /** Periodic: device inventory + presence reconciliation (default 60s). */
   private async pollInventoryAll(): Promise<void> {
     for (const router of await this.activeRouters()) {
       try {
@@ -297,6 +297,13 @@ export class PollingScheduler {
           }
         }
 
+        const presenceEventsToPublish: Array<{
+          routerId: string;
+          deviceId: string;
+          kind: PresenceEventKind;
+          mac?: string | null;
+        }> = [];
+
         for (const event of events) {
           const existing = storedByKey.get(event.key);
           if (!existing) continue; // FIRST_SEEN handled above
@@ -305,24 +312,16 @@ export class PollingScheduler {
             router.id,
             event.kind
           );
-          if (event.kind === 'OFFLINE') {
+          if (event.kind === 'OFFLINE' || event.kind === 'ONLINE') {
             const prev = pendingUpdates.get(existing.id);
             pendingUpdates.set(existing.id, {
               id: existing.id,
-              online: false,
-              ip: prev?.ip ?? existing.ip,
-              name: prev?.name ?? existing.name
-            });
-          } else if (event.kind === 'ONLINE') {
-            const prev = pendingUpdates.get(existing.id);
-            pendingUpdates.set(existing.id, {
-              id: existing.id,
-              online: true,
+              online: event.kind === 'ONLINE',
               ip: prev?.ip ?? existing.ip,
               name: prev?.name ?? existing.name
             });
           }
-          this.events.publish('presence', {
+          presenceEventsToPublish.push({
             routerId: router.id,
             deviceId: existing.id,
             kind: event.kind,
@@ -332,18 +331,13 @@ export class PollingScheduler {
 
         // ADR 0005: Commit all pending observation updates in a single transaction.
         if (pendingUpdates.size > 0) {
-          const updateList = Array.from(pendingUpdates.values());
-          if (typeof this.observabilityRepository.batchUpdateDeviceObservations === 'function') {
-            await this.observabilityRepository.batchUpdateDeviceObservations(updateList);
-          } else {
-            for (const update of updateList) {
-              await this.observabilityRepository.updateDeviceObservation(update.id, {
-                online: update.online,
-                ip: update.ip,
-                name: update.name
-              });
-            }
-          }
+          await this.observabilityRepository.batchUpdateDeviceObservations(
+            Array.from(pendingUpdates.values())
+          );
+        }
+
+        for (const pe of presenceEventsToPublish) {
+          this.events.publish('presence', pe);
         }
 
         const prevMap = this.latestDevices.get(router.id);
