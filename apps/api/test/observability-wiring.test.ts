@@ -212,9 +212,15 @@ describe('observability route wiring with scheduler', () => {
       recordPresenceEvent: async (_devId: string, _routerId: string, kind: string) => {
         recordedEventKind = kind;
       },
-      batchUpdateDeviceObservations: async (updates: Array<{ id: string; online: boolean }>) => {
+      batchUpdateDeviceObservations: async (
+        updates: Array<{ id: string; online: boolean }>,
+        events?: Array<{ deviceId: string; routerId: string; kind: string }>
+      ) => {
         if (updates.length > 0) {
           updatedOnlineState = updates[0]!.online;
+        }
+        if (events && events.length > 0) {
+          recordedEventKind = events[0]!.kind;
         }
       },
       updateDeviceObservation: async (_devId: string, fields: { online: boolean }) => {
@@ -288,9 +294,15 @@ describe('observability route wiring with scheduler', () => {
       recordPresenceEvent: async (_devId: string, _routerId: string, kind: string) => {
         recordedEventKind = kind;
       },
-      batchUpdateDeviceObservations: async (updates: Array<{ id: string; online: boolean }>) => {
+      batchUpdateDeviceObservations: async (
+        updates: Array<{ id: string; online: boolean }>,
+        events?: Array<{ deviceId: string; routerId: string; kind: string }>
+      ) => {
         if (updates.length > 0) {
           updatedOnlineState = updates[0]!.online;
+        }
+        if (events && events.length > 0) {
+          recordedEventKind = events[0]!.kind;
         }
       },
       updateDeviceObservation: async (_devId: string, fields: { online: boolean }) => {
@@ -502,5 +514,127 @@ describe('observability route wiring with scheduler', () => {
 
     assert.equal(batchedUpdates.length, 1, 'must trigger coarse heartbeat update after 10m');
     assert.equal(batchedUpdates[0]?.id, 'dev-1');
+  });
+});
+
+describe('ObservabilityRepository.batchUpdateDeviceObservations', () => {
+  it('commits device updates and presence events in a single BEGIN ... COMMIT block', async () => {
+    const executedQueries: string[] = [];
+    let releasedError: unknown = 'not-called';
+
+    const mockClient = {
+      query: async (text: string) => {
+        executedQueries.push(text);
+        return { rows: [] };
+      },
+      release: (err?: unknown) => {
+        releasedError = err;
+      }
+    };
+
+    const mockPool = {
+      connect: async () => mockClient
+    } as unknown as pg.Pool;
+
+    const { ObservabilityRepository } = await import('../src/observability/repository.js');
+    const repo = new ObservabilityRepository(mockPool);
+
+    await repo.batchUpdateDeviceObservations(
+      [
+        { id: 'dev-1', online: true, ip: '192.168.31.50', name: 'device-1' },
+        { id: 'dev-2', online: false }
+      ],
+      [
+        { deviceId: 'dev-1', routerId: 'router-1', kind: 'ONLINE' }
+      ]
+    );
+
+    assert.equal(executedQueries[0], 'BEGIN');
+    assert.match(executedQueries[1]!, /UPDATE device/);
+    assert.match(executedQueries[2]!, /UPDATE device/);
+    assert.match(executedQueries[3]!, /INSERT INTO device_presence_event/);
+    assert.equal(executedQueries[4], 'COMMIT');
+    assert.equal(releasedError, undefined, 'client must be returned cleanly without error');
+  });
+
+  it('rolls back transaction on query error and preserves original error', async () => {
+    const executedQueries: string[] = [];
+    let releasedError: unknown = 'not-called';
+
+    const mockClient = {
+      query: async (text: string) => {
+        executedQueries.push(text);
+        if (text.includes('UPDATE device')) {
+          throw new Error('database connection lost');
+        }
+        return { rows: [] };
+      },
+      release: (err?: unknown) => {
+        releasedError = err;
+      }
+    };
+
+    const mockPool = {
+      connect: async () => mockClient
+    } as unknown as pg.Pool;
+
+    const { ObservabilityRepository } = await import('../src/observability/repository.js');
+    const repo = new ObservabilityRepository(mockPool);
+
+    await assert.rejects(
+      async () => {
+        await repo.batchUpdateDeviceObservations([
+          { id: 'dev-1', online: true }
+        ]);
+      },
+      /database connection lost/
+    );
+
+    assert.equal(executedQueries[0], 'BEGIN');
+    assert.match(executedQueries[1]!, /UPDATE device/);
+    assert.equal(executedQueries[2], 'ROLLBACK');
+    assert.equal(releasedError, undefined, 'successful rollback releases client cleanly');
+  });
+
+  it('marks client with error on rollback failure to destroy tainted connection', async () => {
+    const executedQueries: string[] = [];
+    let releasedError: unknown = undefined;
+
+    const mockClient = {
+      query: async (text: string) => {
+        executedQueries.push(text);
+        if (text.includes('UPDATE device')) {
+          throw new Error('primary error');
+        }
+        if (text === 'ROLLBACK') {
+          throw new Error('rollback failed: socket closed');
+        }
+        return { rows: [] };
+      },
+      release: (err?: unknown) => {
+        releasedError = err;
+      }
+    };
+
+    const mockPool = {
+      connect: async () => mockClient
+    } as unknown as pg.Pool;
+
+    const { ObservabilityRepository } = await import('../src/observability/repository.js');
+    const repo = new ObservabilityRepository(mockPool);
+
+    await assert.rejects(
+      async () => {
+        await repo.batchUpdateDeviceObservations([
+          { id: 'dev-1', online: true }
+        ]);
+      },
+      /primary error/
+    );
+
+    assert.equal(executedQueries[0], 'BEGIN');
+    assert.equal(executedQueries[2], 'ROLLBACK');
+    assert.ok(releasedError instanceof Error, 'client.release must be called with error');
+    assert.match((releasedError as Error).message, /rollback failed: socket closed/);
   });
 });

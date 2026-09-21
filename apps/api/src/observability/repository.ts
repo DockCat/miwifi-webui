@@ -26,6 +26,12 @@ export interface DeviceObservationUpdate {
   readonly name?: string | null;
 }
 
+export interface PresenceEventInsert {
+  readonly deviceId: string;
+  readonly routerId: string;
+  readonly kind: PresenceEventKind;
+}
+
 export interface TelemetrySnapshotRow {
   readonly id: string;
   readonly routerId: string;
@@ -81,26 +87,28 @@ export class ObservabilityRepository {
     deviceId: string,
     fields: { online: boolean; ip?: string | null; name?: string | null }
   ): Promise<void> {
-    await this.pool.query(
-      `UPDATE device
-       SET online = $2,
-           last_seen_at = CASE WHEN $2 THEN now() ELSE last_seen_at END,
-           ip = COALESCE($3, ip),
-           name = COALESCE($4, name)
-       WHERE id = $1`,
-      [deviceId, fields.online, fields.ip ?? null, fields.name ?? null]
-    );
+    await this.batchUpdateDeviceObservations([
+      {
+        id: deviceId,
+        online: fields.online,
+        ip: fields.ip,
+        name: fields.name
+      }
+    ]);
   }
 
   /**
-   * ADR 0005: Batch update device observations inside a single transaction
-   * to eliminate per-update fsync operations and disk write queue saturation.
+   * ADR 0005: Batch update device observations and presence transitions
+   * inside a single transaction to eliminate per-update fsync operations
+   * and guarantee relational atomicity across state changes.
    */
   async batchUpdateDeviceObservations(
-    updates: readonly DeviceObservationUpdate[]
+    updates: readonly DeviceObservationUpdate[],
+    presenceEvents: readonly PresenceEventInsert[] = []
   ): Promise<void> {
-    if (updates.length === 0) return;
+    if (updates.length === 0 && presenceEvents.length === 0) return;
     const client = await this.pool.connect();
+    let clientError: Error | undefined;
     try {
       await client.query('BEGIN');
       for (const update of updates) {
@@ -114,16 +122,24 @@ export class ObservabilityRepository {
           [update.id, update.online, update.ip ?? null, update.name ?? null]
         );
       }
+      for (const pe of presenceEvents) {
+        await client.query(
+          'INSERT INTO device_presence_event (device_id, router_id, kind) VALUES ($1, $2, $3)',
+          [pe.deviceId, pe.routerId, pe.kind]
+        );
+      }
       await client.query('COMMIT');
     } catch (error) {
       try {
         await client.query('ROLLBACK');
-      } catch {
-        // Suppress rollback errors so the primary transaction error is preserved.
+      } catch (rollbackError) {
+        // Flag connection error to pg-pool so the broken/tainted client is destroyed.
+        clientError =
+          rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
       }
       throw error;
     } finally {
-      client.release();
+      client.release(clientError);
     }
   }
 
