@@ -733,6 +733,75 @@ export const deviceTrafficUsageTool: ToolDefinition<
   }
 };
 
+interface SpeedtestHistoryInput {
+  limit: number;
+  since: Date | null;
+}
+
+export const speedtestHistoryTool: ToolDefinition<
+  SpeedtestHistoryInput,
+  Record<string, unknown>
+> = {
+  name: 'speedtest_history',
+  description:
+    'Look up recent internet speed test results including download and upload bandwidth (bps/Mbps), ping latency (ms), jitter, execution provider (auto/cloudflare/fast), source (router or backend), and timestamp. Call this tool when asked about network speed, bandwidth, connection quality, or recent speed tests.',
+  validate: (input: unknown): SpeedtestHistoryInput | null => {
+    if (input === null || typeof input !== 'object') {
+      return { limit: 5, since: null };
+    }
+    const raw = input as Record<string, unknown>;
+    let limit = 5;
+    if (raw['limit'] !== undefined) {
+      const parsed = boundedLimit(raw['limit']);
+      if (parsed === null) return null;
+      limit = parsed;
+    }
+    let since: Date | null = null;
+    if (raw['since'] !== undefined && raw['since'] !== null) {
+      since = boundedSince(raw['since']);
+      if (since === null) return null;
+    }
+    return { limit, since };
+  },
+  execute: async (ctx, input) => {
+    const { rows } = await ctx.pool.query(
+      `SELECT id, download_bps, upload_bps, ping_ms, jitter_ms, provider, source, triggered_by, status, error_message, created_at
+       FROM speedtest_result
+       WHERE ($1::uuid IS NULL OR router_id = $1)
+         AND ($2::timestamptz IS NULL OR created_at >= $2)
+       ORDER BY created_at DESC
+       LIMIT $3;`,
+      [ctx.routerId || null, input.since, input.limit]
+    );
+
+    const tests = rows.map((r: Record<string, unknown>) => {
+      const dlBps = Number(r['download_bps']);
+      const ulBps = Number(r['upload_bps']);
+      return {
+        id: String(r['id']),
+        downloadBps: dlBps,
+        downloadMbps: Math.round((dlBps / 1_000_000) * 10) / 10,
+        uploadBps: ulBps,
+        uploadMbps: Math.round((ulBps / 1_000_000) * 10) / 10,
+        pingMs: Number(r['ping_ms']),
+        jitterMs: Number(r['jitter_ms']),
+        provider: String(r['provider']),
+        source: String(r['source']),
+        triggeredBy: String(r['triggered_by']),
+        status: String(r['status']),
+        errorMessage: r['error_message'] ? String(r['error_message']) : null,
+        testedAt: r['created_at'] instanceof Date ? r['created_at'].toISOString() : String(r['created_at'])
+      };
+    });
+
+    return {
+      count: tests.length,
+      unit: 'bps (also provides Mbps for convenience)',
+      tests
+    };
+  }
+};
+
 /** The complete tool registry an AI provider can invoke. READ-ONLY ONLY. */
 export const INVESTIGATION_TOOLS = [
   routerStatusTool,
@@ -742,7 +811,8 @@ export const INVESTIGATION_TOOLS = [
   telemetryTimeseriesTool,
   dashboardSummaryTool,
   evidenceLookupTool,
-  deviceTrafficUsageTool
+  deviceTrafficUsageTool,
+  speedtestHistoryTool
 ] as const;
 
 export type ToolName = (typeof INVESTIGATION_TOOLS)[number]['name'];

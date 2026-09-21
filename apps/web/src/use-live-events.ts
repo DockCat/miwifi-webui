@@ -42,7 +42,7 @@ export function useLiveEvents(
           // Malformed frame: ignore rather than tear down the stream.
         }
       };
-      for (const type of ['router-status', 'presence', 'inventory']) {
+      for (const type of ['router-status', 'presence', 'inventory', 'speedtest-start', 'speedtest-complete']) {
         source.addEventListener(type, forward(type));
       }
       source.onerror = () => {

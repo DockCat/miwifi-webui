@@ -9,6 +9,7 @@
  * main.ts creates it and passes it in.
  */
 import cookie from '@fastify/cookie';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { AuthRepository } from './auth/repository.js';
 import { AuditWriter } from './audit/writer.js';
@@ -23,6 +24,10 @@ import { registerObservabilityRoutes } from './routes/observability.js';
 import { registerMutationRoutes } from './routes/mutations.js';
 import { registerInvestigationRoutes } from './routes/investigations.js';
 import { InvestigationRepository } from './ai/repository.js';
+import { registerSpeedtestRoutes } from './routes/speedtest.js';
+import { SpeedtestRepository } from './speedtest/repository.js';
+import { SpeedtestService } from './speedtest/service.js';
+import { loadSpeedtestConfig } from './speedtest/config.js';
 import type pg from 'pg';
 
 export interface BuildAppOptions {
@@ -30,6 +35,7 @@ export interface BuildAppOptions {
   /** Created by main.ts; absent in tests unless a test provides one. */
   readonly scheduler?: PollingScheduler;
   readonly eventBridge?: EventBridge;
+  readonly speedtestService?: SpeedtestService;
   /**
    * Trust X-Forwarded-* headers (request.ip, protocol). Boolean `true`
    * trusts every forwarded claim — only safe when no untrusted client can
@@ -44,9 +50,9 @@ export interface BuildAppOptions {
 export async function buildApp(
   options: BuildAppOptions | pg.Pool
 ): Promise<FastifyInstance> {
-  const { pool, scheduler, eventBridge, trustProxy } =
+  const { pool, scheduler, eventBridge, trustProxy, speedtestService } =
     ('query' in options && typeof options.query === 'function')
-      ? { pool: options, scheduler: undefined, eventBridge: undefined, trustProxy: undefined }
+      ? { pool: options, scheduler: undefined, eventBridge: undefined, trustProxy: undefined, speedtestService: undefined }
       : (options as BuildAppOptions);
 
   const app = Fastify({
@@ -62,6 +68,9 @@ export async function buildApp(
   });
 
   await app.register(cookie);
+  // Rate limiting is configured per-route (speedtest routes have their own limits).
+  // global: false ensures no blanket limit silently covers SSE streams or auth routes.
+  await app.register(rateLimit, { global: false });
 
   // Global error handler: unhandled failures return a clean JSON error —
   // never connection strings, stack traces, or driver messages (which can
@@ -115,6 +124,18 @@ export async function buildApp(
     pool,
     scheduler
   });
+
+  const speedtestConfig = loadSpeedtestConfig();
+  const speedtest = speedtestService ?? new SpeedtestService({
+    repository: new SpeedtestRepository(pool),
+    events,
+    getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
+    downloadBytes: speedtestConfig.downloadBytes,
+    uploadBytes: speedtestConfig.uploadBytes,
+    mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
+  });
+
+  registerSpeedtestRoutes(app, { speedtestService: speedtest });
 
   return app;
 }

@@ -294,7 +294,8 @@ describe('session retention', () => {
       telemetryDays: 90,
       presenceDays: 365,
       auditDays: 365,
-      investigationDays: 30
+      investigationDays: 30,
+      speedtestDays: 90
     });
     const sessionPurge = results.find((r) => r.category === 'investigation_session');
     assert.ok(sessionPurge, 'session category reported');
