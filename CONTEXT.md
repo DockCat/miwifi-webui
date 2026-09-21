@@ -538,6 +538,19 @@ Expected durable concepts include:
 * investigation;
 * investigation evidence.
 
+## Durability Policy
+
+The **Durability Policy** governs the persistence write-acknowledgment contract of PostgreSQL under self-hosted homelab deployments.
+
+Telemetry and routine device heartbeats operate under an asynchronous write model (`synchronous_commit = off`) to eliminate synchronous disk `fsync` thrashing on consumer storage while preserving relational ACID integrity across server reboots.
+
+## Change-Detection Inventory
+
+**Change-Detection Inventory** is the polling optimization where observed router device state (`online`, `ip`, `name`) is compared against persisted device rows before issuing database writes.
+
+If a device's observable attributes are unchanged and its heartbeat is recent, database updates are skipped and maintained in-memory, avoiding write amplification.
+
+
 ## Deployment Stack
 
 Confirmed baseline:

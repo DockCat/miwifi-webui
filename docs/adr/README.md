@@ -86,3 +86,4 @@ Under which material circumstances should this decision be reconsidered?
 * `0002-postgresql-persistence.md`
 * `0003-application-auth-boundary.md`
 * `0004-docker-compose-deployment.md`
+* `0005-telemetry-durability-and-batching.md`

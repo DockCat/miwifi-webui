@@ -24,7 +24,12 @@ coverage/
 
 # Local compose / developer overrides
 compose-dev.yaml
+compose-dev.yml
 compose*.dev.yaml
+compose*.dev.yml
 compose.override.yaml
+compose.override.yml
 *-dev.yaml
+*-dev.yml
 *.local.yaml
+*.local.yml

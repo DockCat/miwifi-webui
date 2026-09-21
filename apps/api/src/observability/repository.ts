@@ -19,6 +19,13 @@ export interface DeviceRow {
   readonly lastSeenAt: Date;
 }
 
+export interface DeviceObservationUpdate {
+  readonly id: string;
+  readonly online: boolean;
+  readonly ip?: string | null;
+  readonly name?: string | null;
+}
+
 export interface TelemetrySnapshotRow {
   readonly id: string;
   readonly routerId: string;
@@ -83,6 +90,37 @@ export class ObservabilityRepository {
        WHERE id = $1`,
       [deviceId, fields.online, fields.ip ?? null, fields.name ?? null]
     );
+  }
+
+  /**
+   * ADR 0005: Batch update device observations inside a single transaction
+   * to eliminate per-update fsync operations and disk write queue saturation.
+   */
+  async batchUpdateDeviceObservations(
+    updates: readonly DeviceObservationUpdate[]
+  ): Promise<void> {
+    if (updates.length === 0) return;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const update of updates) {
+        await client.query(
+          `UPDATE device
+           SET online = $2,
+               last_seen_at = CASE WHEN $2 THEN now() ELSE last_seen_at END,
+               ip = COALESCE($3, ip),
+               name = COALESCE($4, name)
+           WHERE id = $1`,
+          [update.id, update.online, update.ip ?? null, update.name ?? null]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async recordPresenceEvent(

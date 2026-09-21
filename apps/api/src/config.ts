@@ -9,6 +9,12 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
+export interface PollingIntervalConfig {
+  readonly statusIntervalMs: number;
+  readonly inventoryIntervalMs: number;
+  readonly telemetryIntervalMs: number;
+}
+
 export interface AppConfig {
   readonly port: number;
   readonly host: string;
@@ -22,6 +28,7 @@ export interface AppConfig {
    * are ignored. `false` (default) ignores forwarded headers entirely.
    */
   readonly trustProxy: boolean | string;
+  readonly polling: PollingIntervalConfig;
 }
 
 /**
@@ -101,6 +108,15 @@ function parseTrustProxy(value: string | undefined): boolean | string {
   );
 }
 
+function parseInterval(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || value.trim() === '') return fallback;
+  const parsed = Number.parseInt(value.trim(), 10);
+  if (!Number.isInteger(parsed) || parsed < 1000) {
+    throw new Error(`Invalid ${name} value: ${value}. Must be an integer >= 1000 ms.`);
+  }
+  return parsed;
+}
+
 export interface LoadConfigOptions {
   /**
    * Load a `.env` file when explicit environment variables are missing.
@@ -119,9 +135,31 @@ export function loadConfig(options: LoadConfigOptions = {}): AppConfig {
   const databaseUrl = requireEnv('DATABASE_URL');
   const trustProxy = parseTrustProxy(process.env.TRUST_PROXY);
 
+  const statusIntervalMs = parseInterval(
+    process.env.POLLING_STATUS_INTERVAL_MS,
+    15_000,
+    'POLLING_STATUS_INTERVAL_MS'
+  );
+  const inventoryIntervalMs = parseInterval(
+    process.env.POLLING_INVENTORY_INTERVAL_MS,
+    60_000,
+    'POLLING_INVENTORY_INTERVAL_MS'
+  );
+  const telemetryIntervalMs = parseInterval(
+    process.env.POLLING_TELEMETRY_INTERVAL_MS,
+    60_000,
+    'POLLING_TELEMETRY_INTERVAL_MS'
+  );
+
+  const polling: PollingIntervalConfig = {
+    statusIntervalMs,
+    inventoryIntervalMs,
+    telemetryIntervalMs
+  };
+
   if (!databaseUrl.startsWith('postgres://') && !databaseUrl.startsWith('postgresql://')) {
     throw new Error('DATABASE_URL must be a postgres:// or postgresql:// connection string');
   }
 
-  return { port, host, databaseUrl, trustProxy };
+  return { port, host, databaseUrl, trustProxy, polling };
 }

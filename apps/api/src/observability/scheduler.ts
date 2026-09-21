@@ -20,7 +20,7 @@ import {
 } from '@miwifi-webui/router-core';
 import type { NormalizedDevice } from '@miwifi-webui/router-core';
 import type { RouterRepository } from '../router/repository.js';
-import type { ObservabilityRepository } from './repository.js';
+import type { ObservabilityRepository, DeviceObservationUpdate } from './repository.js';
 import type { EventBridge } from './event-bridge.js';
 import { loadRetentionPolicy, type RetentionPolicy } from '../retention/policy.js';
 
@@ -32,7 +32,7 @@ export interface PollingConfig {
 
 export const DEFAULT_POLLING_CONFIG: PollingConfig = {
   statusIntervalMs: 15_000,
-  inventoryIntervalMs: 30_000,
+  inventoryIntervalMs: 60_000,
   telemetryIntervalMs: 60_000
 };
 
@@ -253,6 +253,8 @@ export class PollingScheduler {
         );
 
         // Apply inventory upserts + presence events.
+        const pendingUpdates = new Map<string, DeviceObservationUpdate>();
+
         for (const [key, entry] of observed) {
           const entryMacUpper = entry.device.mac?.toUpperCase();
           const existing =
@@ -275,11 +277,23 @@ export class PollingScheduler {
               mac: inserted.mac
             });
           } else {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: entry.device.online,
-              ip: entry.device.ip ?? null,
-              name: entry.device.name ?? null
-            });
+            // ADR 0005: Change-Detection Inventory (dirty checking).
+            // Skip database writes if status attributes have not changed and last_seen_at is recent (<10m).
+            const stateChanged =
+              existing.online !== entry.device.online ||
+              (entry.device.ip !== undefined && entry.device.ip !== null && existing.ip !== entry.device.ip) ||
+              (entry.device.name !== undefined && entry.device.name !== null && existing.name !== entry.device.name);
+            const lastSeenTime = existing.lastSeenAt ? new Date(existing.lastSeenAt).getTime() : 0;
+            const staleHeartbeat = entry.device.online && (Date.now() - lastSeenTime > 10 * 60 * 1000);
+
+            if (stateChanged || staleHeartbeat) {
+              pendingUpdates.set(existing.id, {
+                id: existing.id,
+                online: entry.device.online,
+                ip: entry.device.ip ?? null,
+                name: entry.device.name ?? null
+              });
+            }
           }
         }
 
@@ -292,12 +306,20 @@ export class PollingScheduler {
             event.kind
           );
           if (event.kind === 'OFFLINE') {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: false
+            const prev = pendingUpdates.get(existing.id);
+            pendingUpdates.set(existing.id, {
+              id: existing.id,
+              online: false,
+              ip: prev?.ip ?? existing.ip,
+              name: prev?.name ?? existing.name
             });
           } else if (event.kind === 'ONLINE') {
-            await this.observabilityRepository.updateDeviceObservation(existing.id, {
-              online: true
+            const prev = pendingUpdates.get(existing.id);
+            pendingUpdates.set(existing.id, {
+              id: existing.id,
+              online: true,
+              ip: prev?.ip ?? existing.ip,
+              name: prev?.name ?? existing.name
             });
           }
           this.events.publish('presence', {
@@ -306,6 +328,22 @@ export class PollingScheduler {
             kind: event.kind,
             mac: existing.mac
           });
+        }
+
+        // ADR 0005: Commit all pending observation updates in a single transaction.
+        if (pendingUpdates.size > 0) {
+          const updateList = Array.from(pendingUpdates.values());
+          if (typeof this.observabilityRepository.batchUpdateDeviceObservations === 'function') {
+            await this.observabilityRepository.batchUpdateDeviceObservations(updateList);
+          } else {
+            for (const update of updateList) {
+              await this.observabilityRepository.updateDeviceObservation(update.id, {
+                online: update.online,
+                ip: update.ip,
+                name: update.name
+              });
+            }
+          }
         }
 
         const prevMap = this.latestDevices.get(router.id);

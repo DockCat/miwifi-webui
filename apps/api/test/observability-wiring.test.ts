@@ -327,6 +327,170 @@ describe('observability route wiring with scheduler', () => {
     await (scheduler as unknown as { pollInventoryAll: () => Promise<void> }).pollInventoryAll();
 
     assert.equal(recordedEventKind, null, 'must NOT record any presence event for continuously online device');
-    assert.equal(updatedOnlineState, true, 'device observation remains online true');
+    assert.notEqual(updatedOnlineState, false, 'device observation must not be marked offline');
+    assert.equal(updatedOnlineState, null, 'unchanged device observation is skipped to avoid disk I/O');
+  });
+
+  it('PollingScheduler calls batchUpdateDeviceObservations when device attributes change', async () => {
+    let batchedUpdates: Array<{ id: string; online: boolean; ip?: string | null; name?: string | null }> = [];
+
+    const mockPool = createMockPool();
+    const mockRouterRepo = {
+      listRouters: async () => [
+        {
+          id: 'router-1',
+          host: '192.168.31.1',
+          compatibility: 'SUPPORTED' as const
+        }
+      ],
+      loadCredential: async () => ({
+        username: 'admin',
+        password: 'pwd'
+      })
+    };
+
+    const mockObsRepo = {
+      listDevicesForRouter: async () => [
+        {
+          id: 'dev-1',
+          routerId: 'router-1',
+          mac: 'AA:BB:CC:DD:EE:01',
+          name: 'old-phone',
+          ip: '192.168.31.50',
+          online: true,
+          internetAccess: true,
+          firstSeenAt: new Date(),
+          lastSeenAt: new Date()
+        }
+      ],
+      recordPresenceEvent: async () => {},
+      batchUpdateDeviceObservations: async (updates: typeof batchedUpdates) => {
+        batchedUpdates = [...updates];
+      }
+    };
+
+    const { EventBridge } = await import('../src/observability/event-bridge.js');
+    const { PollingScheduler } = await import('../src/observability/scheduler.js');
+    const events = new EventBridge();
+
+    const scheduler = new PollingScheduler(
+      mockPool,
+      mockRouterRepo as never,
+      mockObsRepo as never,
+      events,
+      'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+    );
+
+    // Device IP has changed to .55 and name to new-phone
+    const mockAdapter = {
+      call: async (key: string) => {
+        if (key === 'deviceList') {
+          return {
+            status: 200,
+            body: {
+              code: 0,
+              list: [
+                {
+                  mac: 'AA:BB:CC:DD:EE:01',
+                  ip: '192.168.31.55',
+                  name: 'new-phone',
+                  online: true
+                }
+              ]
+            }
+          };
+        }
+        return { status: 200, body: { code: 0 } };
+      }
+    };
+    (scheduler as unknown as { adapters: Map<string, unknown> }).adapters.set('router-1', mockAdapter);
+
+    await (scheduler as unknown as { pollInventoryAll: () => Promise<void> }).pollInventoryAll();
+
+    assert.equal(batchedUpdates.length, 1);
+    assert.equal(batchedUpdates[0]?.id, 'dev-1');
+    assert.equal(batchedUpdates[0]?.ip, '192.168.31.55');
+    assert.equal(batchedUpdates[0]?.name, 'new-phone');
+    assert.equal(batchedUpdates[0]?.online, true);
+  });
+
+  it('PollingScheduler refreshes stale heartbeat when last_seen_at is older than 10 minutes', async () => {
+    let batchedUpdates: Array<{ id: string; online: boolean }> = [];
+
+    const mockPool = createMockPool();
+    const mockRouterRepo = {
+      listRouters: async () => [
+        {
+          id: 'router-1',
+          host: '192.168.31.1',
+          compatibility: 'SUPPORTED' as const
+        }
+      ],
+      loadCredential: async () => ({
+        username: 'admin',
+        password: 'pwd'
+      })
+    };
+
+    // Device last seen 15 minutes ago
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const mockObsRepo = {
+      listDevicesForRouter: async () => [
+        {
+          id: 'dev-1',
+          routerId: 'router-1',
+          mac: 'AA:BB:CC:DD:EE:01',
+          name: 'phone',
+          ip: '192.168.31.50',
+          online: true,
+          internetAccess: true,
+          firstSeenAt: fifteenMinutesAgo,
+          lastSeenAt: fifteenMinutesAgo
+        }
+      ],
+      recordPresenceEvent: async () => {},
+      batchUpdateDeviceObservations: async (updates: typeof batchedUpdates) => {
+        batchedUpdates = [...updates];
+      }
+    };
+
+    const { EventBridge } = await import('../src/observability/event-bridge.js');
+    const { PollingScheduler } = await import('../src/observability/scheduler.js');
+    const events = new EventBridge();
+
+    const scheduler = new PollingScheduler(
+      mockPool,
+      mockRouterRepo as never,
+      mockObsRepo as never,
+      events,
+      'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY='
+    );
+
+    const mockAdapter = {
+      call: async (key: string) => {
+        if (key === 'deviceList') {
+          return {
+            status: 200,
+            body: {
+              code: 0,
+              list: [
+                {
+                  mac: 'AA:BB:CC:DD:EE:01',
+                  ip: '192.168.31.50',
+                  online: true
+                }
+              ]
+            }
+          };
+        }
+        return { status: 200, body: { code: 0 } };
+      }
+    };
+    (scheduler as unknown as { adapters: Map<string, unknown> }).adapters.set('router-1', mockAdapter);
+
+    await (scheduler as unknown as { pollInventoryAll: () => Promise<void> }).pollInventoryAll();
+
+    assert.equal(batchedUpdates.length, 1, 'must trigger coarse heartbeat update after 10m');
+    assert.equal(batchedUpdates[0]?.id, 'dev-1');
   });
 });

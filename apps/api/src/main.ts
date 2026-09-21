@@ -42,7 +42,8 @@ async function main(): Promise<void> {
       new RouterRepository(pool),
       new ObservabilityRepository(pool),
       eventBridge,
-      masterKey.toString('base64')
+      masterKey.toString('base64'),
+      config.polling
     );
     await scheduler.start();
   } catch {
