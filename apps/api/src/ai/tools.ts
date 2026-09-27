@@ -744,7 +744,7 @@ export const speedtestHistoryTool: ToolDefinition<
 > = {
   name: 'speedtest_history',
   description:
-    'Look up recent internet speed test results including download and upload bandwidth (bps/Mbps), ping latency (ms), jitter, execution provider (auto/cloudflare/fast), source (router or backend), and timestamp. Call this tool when asked about network speed, bandwidth, connection quality, or recent speed tests.',
+    'Look up recent internet speed test results including download and upload bandwidth (bps/Mbps), ping latency (ms), jitter, execution provider (auto/cloudflare/mlab), source (router or backend), and timestamp. Call this tool when asked about network speed, bandwidth, connection quality, or recent speed tests.',
   validate: (input: unknown): SpeedtestHistoryInput | null => {
     if (input === null || typeof input !== 'object') {
       return { limit: 5, since: null };

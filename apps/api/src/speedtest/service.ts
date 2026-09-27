@@ -5,15 +5,16 @@ import type {
 import type { EventBridge } from '../observability/event-bridge.js';
 import type { SpeedtestRepository } from './repository.js';
 import type { SpeedtestProvider } from './types.js';
+import type { AuditWriter } from '../audit/writer.js';
 import { CloudflareSpeedtestProvider } from './providers/cloudflare.js';
 import { MlabSpeedtestProvider } from './providers/mlab.js';
-import { FastSpeedtestProvider } from './providers/fast.js';
 import { AutoSpeedtestProvider } from './providers/auto.js';
 import type { MiWifiAdapter } from '@miwifi-webui/router-core';
 
 export interface SpeedtestServiceOptions {
   readonly repository: SpeedtestRepository;
   readonly events: EventBridge;
+  readonly audit?: AuditWriter;
   readonly getRouterAdapter?: (routerId?: string) => MiWifiAdapter | null;
   readonly createProvider?: (providerType: SpeedtestProviderType, routerId?: string) => SpeedtestProvider;
   readonly downloadBytes?: number;
@@ -21,10 +22,18 @@ export interface SpeedtestServiceOptions {
   readonly mlabDurationSeconds?: number;
 }
 
+export interface RunTestOptions {
+  readonly provider?: SpeedtestProviderType;
+  readonly triggeredBy: 'manual' | 'scheduled';
+  readonly routerId?: string;
+  readonly actorId?: string;
+}
+
 export class SpeedtestService {
   private running = false;
   private readonly repository: SpeedtestRepository;
   private readonly events: EventBridge;
+  private readonly audit?: AuditWriter;
   private readonly getRouterAdapter?: (routerId?: string) => MiWifiAdapter | null;
   private readonly createProviderFn?: (
     providerType: SpeedtestProviderType,
@@ -37,6 +46,7 @@ export class SpeedtestService {
   constructor(options: SpeedtestServiceOptions) {
     this.repository = options.repository;
     this.events = options.events;
+    this.audit = options.audit;
     this.getRouterAdapter = options.getRouterAdapter;
     this.createProviderFn = options.createProvider;
     this.downloadBytes = options.downloadBytes;
@@ -48,11 +58,7 @@ export class SpeedtestService {
     return this.running;
   }
 
-  async runTest(options: {
-    provider?: SpeedtestProviderType;
-    triggeredBy: 'manual' | 'scheduled';
-    routerId?: string;
-  }): Promise<SpeedtestResultDTO> {
+  async runTest(options: RunTestOptions): Promise<SpeedtestResultDTO> {
     if (this.running) {
       throw new Error('A speedtest is already in progress');
     }
@@ -67,7 +73,10 @@ export class SpeedtestService {
     });
 
     try {
-      const provider = this.resolveProvider(providerType, options.routerId);
+      const provider = this.resolveProvider(providerType, options.routerId, {
+        actorId: options.actorId,
+        triggeredBy: options.triggeredBy
+      });
       const executionResult = await provider.run();
 
       const savedResult = await this.repository.insertResult({
@@ -104,14 +113,11 @@ export class SpeedtestService {
 
   private resolveProvider(
     providerType: SpeedtestProviderType,
-    routerId?: string
+    routerId?: string,
+    context?: { actorId?: string; triggeredBy?: 'manual' | 'scheduled' }
   ): SpeedtestProvider {
     if (this.createProviderFn) {
       return this.createProviderFn(providerType, routerId);
-    }
-
-    if (providerType === 'fast') {
-      return new FastSpeedtestProvider();
     }
 
     if (providerType === 'mlab') {
@@ -136,6 +142,11 @@ export class SpeedtestService {
       downloadBytes: this.downloadBytes,
       uploadBytes: this.uploadBytes
     });
-    return new AutoSpeedtestProvider(adapter, mlab, cloudflare);
+    return new AutoSpeedtestProvider(adapter, mlab, cloudflare, {
+      audit: this.audit,
+      routerId,
+      actorId: context?.actorId,
+      triggeredBy: context?.triggeredBy
+    });
   }
 }

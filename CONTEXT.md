@@ -551,9 +551,9 @@ Due to the bandwidth and CPU load involved, speedtest executions are single-flig
 
 A **Speedtest Provider** defines the mechanism and external endpoint used to conduct the test:
 
-* `auto`: Attempts router WAN-based testing first, falling back to backend Cloudflare on failure or missing capability;
+* `auto`: Attempts router WAN-based testing first, falling back to backend M-Lab (NDT7), then Cloudflare (CDN) on failure or missing capability;
 * `cloudflare`: Pure backend HTTP/CDN throughput and latency measurement against Cloudflare infrastructure;
-* `fast`: Pure backend measurement against Netflix Fast.com CDN endpoints.
+* `mlab`: Pure backend NDT7 (Network Diagnostic Tool) throughput and latency measurement over WebSocket against M-Lab (Measurement Lab) infrastructure.
 
 Users can choose their desired provider dynamically in the dashboard UI.
 

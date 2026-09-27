@@ -46,7 +46,6 @@ describe('Seam 5: SpeedtestBlock Component', () => {
     assert.ok(html.includes('speedtest-provider-select'));
     assert.ok(html.includes('Cloudflare CDN'));
     assert.ok(html.includes('M-Lab (Google Speedtest)'));
-    assert.ok(html.includes('Fast.com (Netflix)'));
     assert.ok(html.includes('Auto (Router / M-Lab / Cloudflare)'));
     assert.ok(html.includes('Latency'));
     assert.ok(html.includes('Download'));

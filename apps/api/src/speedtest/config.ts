@@ -25,7 +25,7 @@ export function loadSpeedtestConfig(): SpeedtestConfig {
 
   const rawProvider = process.env.SPEEDTEST_DEFAULT_PROVIDER?.trim().toLowerCase();
   const defaultProvider: SpeedtestProviderType =
-    rawProvider === 'cloudflare' || rawProvider === 'mlab' || rawProvider === 'fast' ? rawProvider : 'auto';
+    rawProvider === 'cloudflare' || rawProvider === 'mlab' ? rawProvider : 'auto';
 
   const rawDlBytes = process.env.SPEEDTEST_DOWNLOAD_BYTES;
   let downloadBytes = 50_000_000; // 50MB default

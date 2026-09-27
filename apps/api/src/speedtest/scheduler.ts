@@ -6,7 +6,8 @@ export class SpeedtestScheduler {
 
   constructor(
     private readonly service: SpeedtestService,
-    private readonly config: SpeedtestConfig
+    private readonly config: SpeedtestConfig,
+    private readonly getRouterIds?: () => Promise<string[]>
   ) {}
 
   get isScheduled(): boolean {
@@ -37,10 +38,24 @@ export class SpeedtestScheduler {
     if (this.service.isRunning) return;
 
     try {
-      await this.service.runTest({
-        provider: this.config.defaultProvider,
-        triggeredBy: 'scheduled'
-      });
+      const routerIds = this.getRouterIds ? await this.getRouterIds() : [];
+      if (routerIds.length > 0) {
+        for (const routerId of routerIds) {
+          if (this.service.isRunning) break;
+          await this.service.runTest({
+            provider: this.config.defaultProvider,
+            triggeredBy: 'scheduled',
+            routerId,
+            actorId: 'system'
+          });
+        }
+      } else {
+        await this.service.runTest({
+          provider: this.config.defaultProvider,
+          triggeredBy: 'scheduled',
+          actorId: 'system'
+        });
+      }
     } catch {
       // Background scheduled run failed or conflict; ignore error to keep process alive
     }

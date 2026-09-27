@@ -1,5 +1,13 @@
 import type { MiWifiAdapter } from '@miwifi-webui/router-core';
 import type { SpeedtestExecutionResult, SpeedtestProvider } from '../types.js';
+import type { AuditWriter } from '../../audit/writer.js';
+
+export interface AutoAuditContext {
+  readonly audit?: AuditWriter;
+  readonly routerId?: string | null;
+  readonly actorId?: string | null;
+  readonly triggeredBy?: 'manual' | 'scheduled';
+}
 
 export class AutoSpeedtestProvider implements SpeedtestProvider {
   readonly name = 'auto' as const;
@@ -7,12 +15,25 @@ export class AutoSpeedtestProvider implements SpeedtestProvider {
   constructor(
     private readonly routerAdapter: MiWifiAdapter | null,
     private readonly primaryBackend: SpeedtestProvider,
-    private readonly secondaryBackend?: SpeedtestProvider
+    private readonly secondaryBackend?: SpeedtestProvider,
+    private readonly auditContext?: AutoAuditContext
   ) {}
 
   async run(): Promise<SpeedtestExecutionResult> {
     // 1. Attempt router-side bandwidth test first if adapter is present
     if (this.routerAdapter) {
+      if (this.auditContext?.audit) {
+        await this.auditContext.audit.record({
+          action: 'router.bandwidth_test_attempt',
+          actorId: this.auditContext.actorId ?? null,
+          targetType: 'router',
+          targetId: this.auditContext.routerId ?? null,
+          routerId: this.auditContext.routerId ?? null,
+          outcome: 'info',
+          metadata: { triggeredBy: this.auditContext.triggeredBy ?? 'manual' }
+        });
+      }
+
       try {
         const res = await this.routerAdapter.call('bandwidthTest');
         if (res.status === 200 && res.body && typeof res.body === 'object') {
@@ -24,6 +45,22 @@ export class AutoSpeedtestProvider implements SpeedtestProvider {
             const rtt = Number(bw['rtt']) || 0;
 
             if (downBytesPerSec > 0 || upBytesPerSec > 0) {
+              if (this.auditContext?.audit) {
+                await this.auditContext.audit.record({
+                  action: 'router.bandwidth_test',
+                  actorId: this.auditContext.actorId ?? null,
+                  targetType: 'router',
+                  targetId: this.auditContext.routerId ?? null,
+                  routerId: this.auditContext.routerId ?? null,
+                  outcome: 'success',
+                  metadata: {
+                    downBps: Math.round(downBytesPerSec * 8),
+                    upBps: Math.round(upBytesPerSec * 8),
+                    pingMs: rtt
+                  }
+                });
+              }
+
               return {
                 downloadBps: Math.round(downBytesPerSec * 8),
                 uploadBps: Math.round(upBytesPerSec * 8),
@@ -37,7 +74,30 @@ export class AutoSpeedtestProvider implements SpeedtestProvider {
             }
           }
         }
-      } catch {
+
+        if (this.auditContext?.audit) {
+          await this.auditContext.audit.record({
+            action: 'router.bandwidth_test',
+            actorId: this.auditContext.actorId ?? null,
+            targetType: 'router',
+            targetId: this.auditContext.routerId ?? null,
+            routerId: this.auditContext.routerId ?? null,
+            outcome: 'failure',
+            metadata: { reason: 'bandwidth_zero_or_invalid_response' }
+          });
+        }
+      } catch (err) {
+        if (this.auditContext?.audit) {
+          await this.auditContext.audit.record({
+            action: 'router.bandwidth_test',
+            actorId: this.auditContext.actorId ?? null,
+            targetType: 'router',
+            targetId: this.auditContext.routerId ?? null,
+            routerId: this.auditContext.routerId ?? null,
+            outcome: 'failure',
+            metadata: { reason: err instanceof Error ? err.message : String(err) }
+          });
+        }
         // Router bandwidthTest endpoint failed or unsupported; smoothly fall through to backend
       }
     }

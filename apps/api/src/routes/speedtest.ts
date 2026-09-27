@@ -29,11 +29,14 @@ export function registerSpeedtestRoutes(
 
       const body = (request.body as SpeedtestRunRequest | undefined) ?? {};
       const provider = body.provider as SpeedtestProviderType | undefined;
+      const routerId = body.routerId;
 
       try {
         const result = await speedtestService.runTest({
           provider,
-          triggeredBy: 'manual'
+          triggeredBy: 'manual',
+          routerId,
+          actorId: request.authUser?.id
         });
         return reply.code(200).send({ result });
       } catch (err: unknown) {

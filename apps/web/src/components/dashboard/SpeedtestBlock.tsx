@@ -24,7 +24,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
     if (typeof window !== 'undefined' && window.localStorage) {
       try {
         const stored = localStorage.getItem(STORAGE_PROVIDER_KEY);
-        if (stored === 'auto' || stored === 'cloudflare' || stored === 'mlab' || stored === 'fast') {
+        if (stored === 'auto' || stored === 'cloudflare' || stored === 'mlab') {
           return stored;
         }
       } catch {
@@ -67,6 +67,11 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
   // Handle SSE live events
   useEffect(() => {
     if (!liveEvent) return;
+    const eventRouterId = (liveEvent.data as { routerId?: string | null } | undefined)?.routerId;
+    if (routerId && eventRouterId && eventRouterId !== routerId) {
+      return;
+    }
+
     if (liveEvent.type === 'speedtest-start') {
       setIsRunning(true);
       setErrorMsg(null);
@@ -77,7 +82,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
         setLatestResult(data);
       }
     }
-  }, [liveEvent]);
+  }, [liveEvent, routerId]);
 
   const handleProviderChange = (newProvider: SpeedtestProviderType) => {
     setProvider(newProvider);
@@ -95,7 +100,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
     setIsRunning(true);
     setErrorMsg(null);
     try {
-      const res = await api.speedtestRun(provider);
+      const res = await api.speedtestRun(provider, routerId);
       setLatestResult(res.result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -103,7 +108,7 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
     } finally {
       setIsRunning(false);
     }
-  }, [isRunning, provider]);
+  }, [isRunning, provider, routerId]);
 
   const formatTestTime = (isoString?: string): string => {
     if (!isoString) return t('dashboard.speedtest_never');
@@ -140,12 +145,6 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
           bg: 'rgba(249, 115, 22, 0.15)',
           color: '#f97316'
         };
-      case 'fast':
-        return {
-          label: t('dashboard.speedtest_badge_fast'),
-          bg: 'rgba(168, 85, 247, 0.15)',
-          color: '#a855f7'
-        };
       default:
         return {
           label: t('dashboard.speedtest_source_backend'),
@@ -162,8 +161,6 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
         return `${t('dashboard.speedtest_run')} (M-Lab)`;
       case 'cloudflare':
         return `${t('dashboard.speedtest_run')} (Cloudflare)`;
-      case 'fast':
-        return `${t('dashboard.speedtest_run')} (Fast.com)`;
       default:
         return t('dashboard.speedtest_run');
     }
@@ -196,7 +193,6 @@ export function SpeedtestBlock({ routerId, liveEvent, initialResult }: Speedtest
           <option value="auto">{t('dashboard.speedtest_provider_auto')}</option>
           <option value="mlab">{t('dashboard.speedtest_provider_mlab')}</option>
           <option value="cloudflare">{t('dashboard.speedtest_provider_cloudflare')}</option>
-          <option value="fast">{t('dashboard.speedtest_provider_fast')}</option>
         </select>
       </div>
 

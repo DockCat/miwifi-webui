@@ -187,4 +187,69 @@ describe('Seam 2: SpeedtestScheduler', () => {
     assert.equal(scheduler.isScheduled, false);
     scheduler.stop();
   });
+
+  it('iterates through all router IDs during scheduled run', async () => {
+    const executedRuns: Array<{ routerId?: string; actorId?: string; triggeredBy: string }> = [];
+    const mockService = {
+      isRunning: false,
+      runTest: async (options: { routerId?: string; actorId?: string; triggeredBy: string }) => {
+        executedRuns.push(options);
+        return {} as never;
+      }
+    };
+
+    const scheduler = new SpeedtestScheduler(
+      mockService as never,
+      {
+        enabled: true,
+        intervalMinutes: 30,
+        defaultProvider: 'auto',
+        downloadBytes: 50_000_000,
+        uploadBytes: 20_000_000,
+        mlabDurationSeconds: 5
+      },
+      async () => ['router-1', 'router-2']
+    );
+
+    await (scheduler as unknown as { triggerScheduledTest: () => Promise<void> }).triggerScheduledTest();
+
+    assert.equal(executedRuns.length, 2);
+    assert.equal(executedRuns[0]?.routerId, 'router-1');
+    assert.equal(executedRuns[0]?.actorId, 'system');
+    assert.equal(executedRuns[0]?.triggeredBy, 'scheduled');
+    assert.equal(executedRuns[1]?.routerId, 'router-2');
+    assert.equal(executedRuns[1]?.actorId, 'system');
+    assert.equal(executedRuns[1]?.triggeredBy, 'scheduled');
+  });
+
+  it('runs backend speedtest without routerId when getRouterIds returns empty', async () => {
+    const executedRuns: Array<{ routerId?: string; actorId?: string; triggeredBy: string }> = [];
+    const mockService = {
+      isRunning: false,
+      runTest: async (options: { routerId?: string; actorId?: string; triggeredBy: string }) => {
+        executedRuns.push(options);
+        return {} as never;
+      }
+    };
+
+    const scheduler = new SpeedtestScheduler(
+      mockService as never,
+      {
+        enabled: true,
+        intervalMinutes: 30,
+        defaultProvider: 'auto',
+        downloadBytes: 50_000_000,
+        uploadBytes: 20_000_000,
+        mlabDurationSeconds: 5
+      },
+      async () => []
+    );
+
+    await (scheduler as unknown as { triggerScheduledTest: () => Promise<void> }).triggerScheduledTest();
+
+    assert.equal(executedRuns.length, 1);
+    assert.equal(executedRuns[0]?.routerId, undefined);
+    assert.equal(executedRuns[0]?.actorId, 'system');
+    assert.equal(executedRuns[0]?.triggeredBy, 'scheduled');
+  });
 });

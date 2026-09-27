@@ -18,6 +18,27 @@ interface MlabLocateResponse {
   readonly results?: MlabLocateServer[];
 }
 
+function validateMlabWebSocketUrl(urlStr: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(urlStr);
+  } catch {
+    throw new Error(`Invalid WebSocket URL: ${urlStr}`);
+  }
+  if (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:') {
+    throw new Error(`Untrusted WebSocket protocol: ${parsed.protocol}`);
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const isTrustedMlabHost =
+    hostname.endsWith('.measurement-lab.org') ||
+    hostname.endsWith('.measurementlab.net') ||
+    hostname.endsWith('.test');
+  if (!isTrustedMlabHost) {
+    throw new Error(`Untrusted M-Lab WebSocket host: ${hostname}`);
+  }
+  return urlStr;
+}
+
 export class MlabSpeedtestProvider implements SpeedtestProvider {
   readonly name = 'mlab' as const;
   private readonly fetchFn: typeof fetch;
@@ -86,13 +107,15 @@ export class MlabSpeedtestProvider implements SpeedtestProvider {
       if (!server || !server.urls) {
         throw new Error('M-Lab locate returned no available servers');
       }
+      const rawDownloadUrl = server.urls['wss:///ndt/v7/download'] ?? server.urls['ws:///ndt/v7/download'];
+      const rawUploadUrl = server.urls['wss:///ndt/v7/upload'] ?? server.urls['ws:///ndt/v7/upload'];
 
-      const downloadUrl = server.urls['wss:///ndt/v7/download'] ?? server.urls['ws:///ndt/v7/download'];
-      const uploadUrl = server.urls['wss:///ndt/v7/upload'] ?? server.urls['ws:///ndt/v7/upload'];
-
-      if (!downloadUrl || !uploadUrl) {
+      if (!rawDownloadUrl || !rawUploadUrl) {
         throw new Error('M-Lab locate missing NDT7 WebSocket URLs');
       }
+
+      const downloadUrl = validateMlabWebSocketUrl(rawDownloadUrl);
+      const uploadUrl = validateMlabWebSocketUrl(rawUploadUrl);
 
       const pingEstimateMs = Math.max(1, Math.round(performance.now() - start));
       return { downloadUrl, uploadUrl, pingEstimateMs };

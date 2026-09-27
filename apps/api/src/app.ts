@@ -129,6 +129,7 @@ export async function buildApp(
   const speedtest = speedtestService ?? new SpeedtestService({
     repository: new SpeedtestRepository(pool),
     events,
+    audit,
     getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
     downloadBytes: speedtestConfig.downloadBytes,
     uploadBytes: speedtestConfig.uploadBytes,

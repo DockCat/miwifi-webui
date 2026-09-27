@@ -8,6 +8,7 @@ import { closePool, createPool } from './db/pool.js';
 import { applyMigrations } from './db/migrate.js';
 import { parseMasterKey } from './crypto/envelope.js';
 import { RouterRepository } from './router/repository.js';
+import { AuditWriter } from './audit/writer.js';
 import { ObservabilityRepository } from './observability/repository.js';
 import { EventBridge } from './observability/event-bridge.js';
 import { PollingScheduler } from './observability/scheduler.js';
@@ -37,13 +38,15 @@ async function main(): Promise<void> {
   // Master key is required for router credential renewal; without it the
   // scheduler cannot run but the app still serves (auth health etc.).
   const eventBridge = new EventBridge();
+  const routerRepo = new RouterRepository(pool);
+  const audit = new AuditWriter(pool);
   let scheduler: PollingScheduler | null = null;
   let masterKeyWarning = false;
   try {
     const masterKey = parseMasterKey(process.env.APP_MASTER_KEY);
     scheduler = new PollingScheduler(
       pool,
-      new RouterRepository(pool),
+      routerRepo,
       new ObservabilityRepository(pool),
       eventBridge,
       masterKey.toString('base64'),
@@ -59,12 +62,17 @@ async function main(): Promise<void> {
   const speedtestService = new SpeedtestService({
     repository: speedtestRepo,
     events: eventBridge,
+    audit,
     getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
     downloadBytes: speedtestConfig.downloadBytes,
     uploadBytes: speedtestConfig.uploadBytes,
     mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
   });
-  const speedtestScheduler = new SpeedtestScheduler(speedtestService, speedtestConfig);
+  const speedtestScheduler = new SpeedtestScheduler(
+    speedtestService,
+    speedtestConfig,
+    async () => (await routerRepo.listRouters()).map((r) => r.id)
+  );
   speedtestScheduler.start();
 
   const app = await buildApp({

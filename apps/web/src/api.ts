@@ -205,10 +205,10 @@ export const api = {
       }
     ),
 
-  speedtestRun: (provider?: SpeedtestProviderType) =>
+  speedtestRun: (provider?: SpeedtestProviderType, routerId?: string) =>
     request<{ result: SpeedtestResultDTO }>('/api/speedtest/run', {
       method: 'POST',
-      body: JSON.stringify({ provider })
+      body: JSON.stringify({ provider, routerId })
     }),
 
   speedtestLatest: (routerId?: string) =>

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { CloudflareSpeedtestProvider } from '../src/speedtest/providers/cloudflare.js';
-import { FastSpeedtestProvider } from '../src/speedtest/providers/fast.js';
 import { AutoSpeedtestProvider } from '../src/speedtest/providers/auto.js';
 
 describe('Seam 1: CloudflareSpeedtestProvider', () => {
@@ -50,46 +49,6 @@ describe('Seam 1: CloudflareSpeedtestProvider', () => {
     assert.equal(result.source, 'backend');
     assert.equal(result.status, 'failed');
     assert.ok(result.errorMessage?.includes('Network timeout'));
-  });
-});
-
-describe('Seam 1: FastSpeedtestProvider', () => {
-  it('measures download and latency via mock fast endpoints', async () => {
-    const mockFetch = (async (url: string | URL | Request) => {
-      const parsed = new URL(String(url));
-      if (parsed.hostname === 'fast.com' || parsed.hostname === 'api.fast.com') {
-        return new Response(new Uint8Array(500_000), { status: 200 });
-      }
-      return new Response('', { status: 200 });
-    }) as typeof fetch;
-
-    const provider = new FastSpeedtestProvider({ fetchFn: mockFetch });
-    const result = await provider.run();
-
-    assert.equal(result.provider, 'fast');
-    assert.equal(result.source, 'backend');
-    assert.equal(result.status, 'completed');
-    assert.ok(result.downloadBps > 0);
-  });
-
-  it('fails safely when Fast.com API returns 403 (missing token)', async () => {
-    const mockFetch = (async (url: string | URL | Request) => {
-      const parsed = new URL(String(url));
-      if (parsed.hostname === 'fast.com') {
-        return new Response('', { status: 200 });
-      }
-      if (parsed.hostname === 'api.fast.com') {
-        return new Response('Forbidden', { status: 403 });
-      }
-      return new Response('', { status: 200 });
-    }) as typeof fetch;
-
-    const provider = new FastSpeedtestProvider({ fetchFn: mockFetch });
-    const result = await provider.run();
-
-    assert.equal(result.provider, 'fast');
-    assert.equal(result.status, 'failed');
-    assert.ok(result.errorMessage?.includes('403'));
   });
 });
 
@@ -214,6 +173,110 @@ describe('Seam 1: AutoSpeedtestProvider (Router first with fallback)', () => {
     assert.equal(result.source, 'backend');
     assert.equal(result.status, 'completed');
     assert.equal(result.downloadBps, 500_000_000);
+  });
+
+  it('records audit events on router test attempt and success', async () => {
+    const auditEvents: Array<Record<string, unknown>> = [];
+    const mockAudit = {
+      record: async (event: Record<string, unknown>) => {
+        auditEvents.push(event);
+      }
+    };
+
+    const mockRouterAdapter = {
+      call: async () => ({
+        status: 200,
+        body: {
+          code: 0,
+          bandwidth: {
+            down: 12500000,
+            up: 2500000,
+            rtt: 15
+          }
+        }
+      })
+    };
+
+    const mockBackend = {
+      run: async () => ({
+        downloadBps: 0,
+        uploadBps: 0,
+        pingMs: 0,
+        jitterMs: 0,
+        provider: 'cloudflare' as const,
+        source: 'backend' as const,
+        status: 'completed' as const
+      })
+    };
+
+    const provider = new AutoSpeedtestProvider(
+      mockRouterAdapter as never,
+      mockBackend as never,
+      undefined,
+      {
+        audit: mockAudit as never,
+        routerId: 'router-123',
+        actorId: 'user-456',
+        triggeredBy: 'manual'
+      }
+    );
+
+    const result = await provider.run();
+    assert.equal(result.source, 'router');
+    assert.equal(auditEvents.length, 2);
+    assert.equal(auditEvents[0]?.action, 'router.bandwidth_test_attempt');
+    assert.equal(auditEvents[0]?.outcome, 'info');
+    assert.equal(auditEvents[0]?.actorId, 'user-456');
+    assert.equal(auditEvents[0]?.routerId, 'router-123');
+
+    assert.equal(auditEvents[1]?.action, 'router.bandwidth_test');
+    assert.equal(auditEvents[1]?.outcome, 'success');
+  });
+
+  it('records audit failure and falls back when router call throws', async () => {
+    const auditEvents: Array<Record<string, unknown>> = [];
+    const mockAudit = {
+      record: async (event: Record<string, unknown>) => {
+        auditEvents.push(event);
+      }
+    };
+
+    const mockRouterAdapter = {
+      call: async () => {
+        throw new Error('Connection refused');
+      }
+    };
+
+    const mockBackend = {
+      run: async () => ({
+        downloadBps: 50_000_000,
+        uploadBps: 10_000_000,
+        pingMs: 25,
+        jitterMs: 2,
+        provider: 'cloudflare' as const,
+        source: 'backend' as const,
+        status: 'completed' as const
+      })
+    };
+
+    const provider = new AutoSpeedtestProvider(
+      mockRouterAdapter as never,
+      mockBackend as never,
+      undefined,
+      {
+        audit: mockAudit as never,
+        routerId: 'router-123',
+        actorId: 'system',
+        triggeredBy: 'scheduled'
+      }
+    );
+
+    const result = await provider.run();
+    assert.equal(result.source, 'backend');
+    assert.equal(auditEvents.length, 2);
+    assert.equal(auditEvents[0]?.action, 'router.bandwidth_test_attempt');
+    assert.equal(auditEvents[1]?.action, 'router.bandwidth_test');
+    assert.equal(auditEvents[1]?.outcome, 'failure');
   });
 });
 

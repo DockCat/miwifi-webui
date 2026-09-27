@@ -124,15 +124,23 @@ export class CloudflareSpeedtestProvider implements SpeedtestProvider {
 
     if (res.body && typeof res.body.getReader === 'function') {
       const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          if (firstChunk) {
-            transferStart = performance.now();
-            firstChunk = false;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            if (firstChunk) {
+              transferStart = performance.now();
+              firstChunk = false;
+            }
+            totalBytes += value.byteLength;
           }
-          totalBytes += value.byteLength;
+        }
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          // Ignore release errors
         }
       }
     } else {

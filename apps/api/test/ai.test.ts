@@ -54,33 +54,6 @@ describe('provider default state', () => {
     assert.equal(loadProviderConfig().mode, 'disabled');
   });
 
-  it('parses maxTokens from AI_PROVIDER_MAX_TOKENS with default fallback to 2048', () => {
-    process.env.AI_PROVIDER_MODE = 'external';
-    process.env.AI_PROVIDER_BASE_URL = 'https://api.example.com/v1';
-    process.env.AI_PROVIDER_MODEL = 'gpt-test';
-    delete process.env.AI_PROVIDER_MAX_TOKENS;
-
-    let config = loadProviderConfig();
-    assert.equal(config.maxTokens, 2048);
-
-    process.env.AI_PROVIDER_MAX_TOKENS = '4096';
-    config = loadProviderConfig();
-    assert.equal(config.maxTokens, 4096);
-
-    process.env.AI_PROVIDER_MAX_TOKENS = '0';
-    config = loadProviderConfig();
-    assert.equal(config.maxTokens, 0);
-
-    process.env.AI_PROVIDER_MAX_TOKENS = 'invalid';
-    config = loadProviderConfig();
-    assert.equal(config.maxTokens, 2048);
-
-    delete process.env.AI_PROVIDER_MODE;
-    delete process.env.AI_PROVIDER_BASE_URL;
-    delete process.env.AI_PROVIDER_MODEL;
-    delete process.env.AI_PROVIDER_MAX_TOKENS;
-  });
-
   it('local mode requires base url and model', () => {
     process.env.AI_PROVIDER_MODE = 'local';
     delete process.env.AI_PROVIDER_BASE_URL;
@@ -495,7 +468,6 @@ describe('alias legend in investigation results', () => {
           baseUrl: 'http://provider.test/v1',
           apiKey: null,
           model: 'test-model',
-          maxTokens: 2048,
           privacy: EXTERNAL_PRIVACY
         },
         {
@@ -649,7 +621,6 @@ describe('conversation history reaches the provider', () => {
           baseUrl: 'http://provider.test/v1',
           apiKey: null,
           model: 'test-model',
-          maxTokens: 2048,
           privacy: LOCAL_PRIVACY
         },
         {
@@ -704,7 +675,7 @@ describe('deterministic tool choice for traffic questions', () => {
     }) as typeof fetch;
     try {
       await runInvestigation(
-        { mode: 'local', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY },
+        { mode: 'local', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
         { pool: { query: async () => ({ rows: [] }) } as never, routerId: 'router-1' },
         '過去24小時下載流量總和最多的是哪一個裝置？'
       );
@@ -738,7 +709,7 @@ describe('deterministic tool choice for traffic questions', () => {
     } } as never;
     try {
       const result = await runInvestigation(
-        { mode: 'external', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY },
+        { mode: 'external', baseUrl: 'http://provider.test/v1', apiKey: null, model: 'test', privacy: LOCAL_PRIVACY },
         { pool, routerId: 'router-1' },
         'device_01 在哪個時段下載流量最高嗎？'
       );
@@ -794,7 +765,7 @@ describe('extractProviderErrorMessage', () => {
 
 describe('investigation privacy and transcript regressions', () => {
   const config = { mode: 'external' as const, baseUrl: 'http://provider.test/v1', apiKey: null,
-    model: 'test', maxTokens: 2048, privacy: LOCAL_PRIVACY }; // Caller cannot bypass external policy.
+    model: 'test', privacy: LOCAL_PRIVACY }; // Caller cannot bypass external policy.
   const ctx = { routerId: 'router-1', pool: { query: async () => ({ rows: [
     { id: 'd-1', name: 'SEN[1]TINEL-TV', mac: 'AA:BB:CC:DD:EE:FF', ip: 'fe80::1234' }
   ] }) } as never };

@@ -8,22 +8,22 @@ Related plan: `docs/plans/0001-product-foundation.md`
 
 ## Objective
 
-Add an on-demand and scheduled Internet speed testing feature to the UniFi-style dashboard with multiple selectable providers (`Auto` [Router first, fallback to Cloudflare], `Cloudflare CDN`, and `Fast.com`), configurable periodic execution via environment variables (default 30 minutes), PostgreSQL persistence and retention, real-time SSE updates, and AI investigation tool support.
+Add an on-demand and scheduled Internet speed testing feature to the UniFi-style dashboard with multiple selectable providers (`Auto` [Router first, fallback to M-Lab NDT7, then Cloudflare], `Cloudflare CDN`, and `M-Lab NDT7`), configurable periodic execution via environment variables (default 30 minutes), PostgreSQL persistence and retention, real-time SSE updates, and AI investigation tool support.
 
 ## Scope
 
 In:
 - Database migration `0010-speedtest.sql` creating `speedtest_results` table with indices.
 - Contracts DTOs in `packages/contracts` for speedtest request, response, provider, and source types.
-- Router adapter operation `bandwidthTest` (`/api/misystem/bandwidth_test`) with `DISRUPTIVE` effect classification.
+- Router adapter operation `bandwidthTest` (`/api/misystem/bandwidth_test`) with `DISRUPTIVE` effect classification and structured audit logging.
 - Speedtest providers in `apps/api/src/speedtest/providers/`:
   - `CloudflareSpeedtestProvider`: Pure TS HTTP/CDN latency, download, and upload measurement.
-  - `FastSpeedtestProvider`: Netflix Fast.com CDN measurement.
-  - `RouterSpeedtestRunner`: Router-side bandwidth test with automatic fallback to Cloudflare on failure/unsupported.
+  - `MlabSpeedtestProvider`: Pure TS WebSocket NDT7 latency, download, and upload measurement against M-Lab infrastructure.
+  - `AutoSpeedtestProvider`: Router-side bandwidth test with automatic fallback to M-Lab then Cloudflare on failure/unsupported.
 - Speedtest service with single-flight concurrency lock (`409 Conflict` on overlap), persistence, and SSE event broadcast via `EventBridge`.
 - Configurable scheduler running every `SPEEDTEST_INTERVAL_MINUTES` (default: 30 minutes; 0 = disabled) and retention cleanup (`RETENTION_SPEEDTEST_DAYS`).
 - API routes:
-  - `POST /api/speedtest/run` (with optional `{ provider }`)
+  - `POST /api/speedtest/run` (with optional `{ provider, routerId }`)
   - `GET /api/speedtest/latest`
   - `GET /api/speedtest/history`
 - AI investigation integration:
@@ -31,7 +31,7 @@ In:
   - System prompt and data catalog updates in `apps/api/src/ai/provider.ts`.
 - Frontend dashboard component `SpeedtestBlock.tsx` integrated with `DEFAULT_LAYOUT`:
   - Download rate (Mbps), upload rate (Mbps), ping (ms), jitter (ms).
-  - Provider selector dropdown (`Auto`, `Cloudflare`, `Fast.com`) with `localStorage` persistence.
+  - Provider selector dropdown (`Auto`, `Cloudflare`, `M-Lab`) with `localStorage` persistence.
   - "Run Speedtest" trigger button with interactive progress state.
   - Live SSE listener for real-time reactivity.
   - Full i18n support in `zh-CN` and `en`.

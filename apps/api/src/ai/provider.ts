@@ -38,12 +38,6 @@ export interface ProviderConfig {
   readonly baseUrl: string | null;
   readonly apiKey: string | null;
   readonly model: string | null;
-  /**
-   * Max completion tokens requested from the provider (default: 2048).
-   * Configured via AI_PROVIDER_MAX_TOKENS environment variable.
-   * If set to 0, max_tokens parameter is omitted from request body.
-   */
-  readonly maxTokens: number;
   /** Egress privacy — derived from the mode, not configurable. */
   readonly privacy: PrivacyConfig;
 }
@@ -53,7 +47,6 @@ export const DISABLED_PROVIDER: ProviderConfig = {
   baseUrl: null,
   apiKey: null,
   model: null,
-  maxTokens: 2048,
   privacy: EXTERNAL_PRIVACY
 };
 
@@ -63,23 +56,15 @@ export function loadProviderConfig(): ProviderConfig {
   const baseUrl = process.env.AI_PROVIDER_BASE_URL ?? null;
   const apiKey = process.env.AI_PROVIDER_API_KEY ?? null;
   const model = process.env.AI_PROVIDER_MODEL ?? null;
-  const rawMaxTokens = process.env.AI_PROVIDER_MAX_TOKENS;
-  let maxTokens = 2048;
-  if (rawMaxTokens !== undefined && rawMaxTokens.trim() !== '') {
-    const parsed = Number.parseInt(rawMaxTokens.trim(), 10);
-    if (Number.isInteger(parsed) && parsed >= 0) {
-      maxTokens = parsed;
-    }
-  }
 
   if (mode !== 'local' && mode !== 'external') return DISABLED_PROVIDER;
   if (!baseUrl || !model) return DISABLED_PROVIDER;
 
   if (mode === 'local') {
-    return { mode, baseUrl, apiKey, model, maxTokens, privacy: LOCAL_PRIVACY };
+    return { mode, baseUrl, apiKey, model, privacy: LOCAL_PRIVACY };
   }
 
-  return { mode, baseUrl, apiKey, model, maxTokens, privacy: EXTERNAL_PRIVACY };
+  return { mode, baseUrl, apiKey, model, privacy: EXTERNAL_PRIVACY };
 }
 
 export interface EvidenceLink {
@@ -378,7 +363,6 @@ async function chatCompletion(
   const body = {
     model: config.model,
     messages,
-    ...(config.maxTokens > 0 ? { max_tokens: config.maxTokens } : {}),
     tools: allowTools ? INVESTIGATION_TOOLS.map((tool) => ({
       type: 'function' as const,
       function: {
