@@ -285,4 +285,42 @@ describe('Seam 3: Speedtest Routes', () => {
 
     assert.equal(limitedRes.statusCode, 429);
   });
+
+  it('rejects non-UUID routerId in POST /api/speedtest/run body with 400', async () => {
+    const app = await buildApp({ pool: createMockPool() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/speedtest/run',
+      headers: { cookie: `${SESSION_COOKIE}=valid-session-token` },
+      payload: { routerId: 'not-a-uuid' }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = JSON.parse(res.body) as { error: string };
+    assert.equal(body.error, 'invalid_router_id');
+  });
+
+  it('rejects non-UUID routerId in GET /api/speedtest/latest query with 400', async () => {
+    const app = await buildApp({ pool: createMockPool() });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/speedtest/latest?routerId=not-a-uuid',
+      headers: { cookie: `${SESSION_COOKIE}=valid-session-token` }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = JSON.parse(res.body) as { error: string };
+    assert.equal(body.error, 'invalid_router_id');
+  });
+
+  it('rejects unknown provider value in POST /api/speedtest/run with 400', async () => {
+    const app = await buildApp({ pool: createMockPool() });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/speedtest/run',
+      headers: { cookie: `${SESSION_COOKIE}=valid-session-token` },
+      payload: { provider: 'fast' }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = JSON.parse(res.body) as { error: string };
+    assert.equal(body.error, 'invalid_provider');
+  });
 });

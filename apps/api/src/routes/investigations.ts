@@ -31,10 +31,10 @@ import {
 } from '../ai/provider.js';
 import type { ToolContextBase } from '../ai/tools.js';
 import type { PollingScheduler } from '../observability/scheduler.js';
+import { UUID_PATTERN } from '../utils/uuid.js';
 
 /** Application UTF-8 byte budget; not a model-specific token count. */
 export const SESSION_CONTEXT_BYTES = 48_000;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function historyBytes(history: readonly HistoryTurn[], question: string): number {
   return Buffer.byteLength(JSON.stringify(history) + question, 'utf8');

@@ -64,3 +64,13 @@ Status: `DONE` — completed 2026-09-18.
 - `pnpm -r typecheck`: 0 errors across all 4 packages (`contracts`, `router-core`, `api`, `web`).
 - `pnpm -r build`: Clean production build for both `api` and `web`.
 - Security & CI: Added `@fastify/rate-limit` with route-level configuration (`max: 10/min` on `/api/speedtest/run`) and sanitized mock URL parsing in test to satisfy CodeQL analysis.
+
+### Design Decision: Provider Error Surface (2026-09-27)
+
+`POST /api/speedtest/run` returns the provider's `err.message` directly to the
+client on 500 failures. This is intentional: provider error messages contain
+only measurement-level diagnostics (e.g. HTTP status codes, timeout
+descriptions) produced by our own provider code. They do not contain
+credentials, stok tokens, DB connection strings, or stack traces. The server
+also logs the full error via `app.log.error` before responding. This decision
+was reviewed against AGENTS.md security invariants and accepted.

@@ -2,10 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import type { SpeedtestRunRequest, SpeedtestProviderType } from '@miwifi-webui/contracts';
 import { requireAuth } from '../auth/plugin.js';
 import type { SpeedtestService } from '../speedtest/service.js';
+import { isValidUuid } from '../utils/uuid.js';
 
 export interface SpeedtestRoutesOptions {
   readonly speedtestService: SpeedtestService;
 }
+
+// Keeps in sync with SpeedtestProviderType union in @miwifi-webui/contracts.
+const VALID_PROVIDERS = new Set<string>(['auto', 'cloudflare', 'mlab']);
 
 export function registerSpeedtestRoutes(
   app: FastifyInstance,
@@ -28,8 +32,18 @@ export function registerSpeedtestRoutes(
       if (!requireAuth(request, reply)) return;
 
       const body = (request.body as SpeedtestRunRequest | undefined) ?? {};
+
+      // H-3: Reject unknown provider values rather than silently falling back.
       const provider = body.provider as SpeedtestProviderType | undefined;
+      if (provider !== undefined && !VALID_PROVIDERS.has(provider)) {
+        return reply.code(400).send({ error: 'invalid_provider' });
+      }
+
+      // H-1: routerId must be a well-formed UUID when provided.
       const routerId = body.routerId;
+      if (routerId !== undefined && !isValidUuid(routerId)) {
+        return reply.code(400).send({ error: 'invalid_router_id' });
+      }
 
       try {
         const result = await speedtestService.runTest({
@@ -44,6 +58,12 @@ export function registerSpeedtestRoutes(
         if (msg.includes('already in progress')) {
           return reply.code(409).send({ error: 'speedtest_already_running' });
         }
+        // Provider error messages are intentionally surfaced to the client.
+        // They originate from our own provider classes and contain only
+        // measurement-level diagnostics (e.g. HTTP status codes, timeouts).
+        // They never contain credentials, stok tokens, DB connection strings,
+        // or internal stack traces. See docs/tasks/0015-dashboard-speedtest.md.
+        app.log.error({ err }, 'speedtest run failed');
         return reply.code(500).send({ error: msg });
       }
     }
@@ -62,8 +82,16 @@ export function registerSpeedtestRoutes(
     },
     async (request, reply) => {
       if (!requireAuth(request, reply)) return;
+
       const query = request.query as { routerId?: string } | undefined;
-      const latest = await speedtestService.getLatest(query?.routerId);
+
+      // H-1: routerId must be a well-formed UUID when provided.
+      const routerId = query?.routerId;
+      if (routerId !== undefined && !isValidUuid(routerId)) {
+        return reply.code(400).send({ error: 'invalid_router_id' });
+      }
+
+      const latest = await speedtestService.getLatest(routerId);
       return reply.code(200).send({ latest });
     }
   );
@@ -81,13 +109,21 @@ export function registerSpeedtestRoutes(
     },
     async (request, reply) => {
       if (!requireAuth(request, reply)) return;
+
       const query = request.query as { limit?: string; routerId?: string; since?: string } | undefined;
+
+      // H-1: routerId must be a well-formed UUID when provided.
+      const routerId = query?.routerId;
+      if (routerId !== undefined && !isValidUuid(routerId)) {
+        return reply.code(400).send({ error: 'invalid_router_id' });
+      }
+
       const limit = query?.limit ? Number.parseInt(query.limit, 10) : 10;
       const since = query?.since ? new Date(query.since) : undefined;
 
       const history = await speedtestService.getHistory(
         Number.isInteger(limit) ? limit : 10,
-        query?.routerId,
+        routerId,
         since && !Number.isNaN(since.getTime()) ? since : undefined
       );
       return reply.code(200).send({ history });
