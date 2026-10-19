@@ -333,58 +333,75 @@ export class MiWifiAdapter {
     return body !== null && typeof body === 'object';
   }
 
-  /** Execute an arbitrary catalog operation (session enforced). */
+  /** Execute a catalog operation, renewing stale sessions once for READs only. */
   async call(key: OperationKey, body?: Record<string, string>): Promise<RouterTransportResponse> {
     const invoke = async (k: OperationKey): Promise<RouterTransportResponse> => {
       const spec = specFor(k);
-      if (spec.requiresStok && !(await this.ensureSession())) {
-        throw new RouterTransportError({ kind: 'aborted' }, spec.id);
+      if (spec.requiresStok && !this.hasSession) {
+        const login = await this.login();
+        if (!login.ok) {
+          const kind = login.reason === 'invalid_credentials'
+            ? 'authentication'
+            : login.reason === 'router_offline' ? 'offline' : 'malformed';
+          throw new RouterTransportError({ kind }, spec.id);
+        }
       }
+
       let response: RouterTransportResponse;
       try {
         response = await this.raw(spec, body);
       } catch (error) {
-        if (
-          error instanceof RouterTransportError &&
-          error.failure.kind === 'http-status' &&
-          (error.failure.status === 302 || error.failure.status === 401 || error.failure.status === 403)
-        ) {
+        if (error instanceof RouterTransportError &&
+            error.failure.kind === 'http-status' &&
+            [302, 401, 403].includes(error.failure.status)) {
           this.invalidateSession();
         }
         throw error;
       }
-      // MiWiFi signals session expiry via code 9 or redirect to login.
+
+      if (response.status === 401 || response.status === 403) {
+        this.invalidateSession();
+        throw new RouterTransportError({ kind: 'http-status', status: response.status }, spec.id);
+      }
       const asObj = response.body as { code?: number } | null;
       if (typeof asObj === 'object' && asObj !== null && asObj.code === 9) {
         this.invalidateSession();
-        throw new RouterTransportError({ kind: 'aborted' }, spec.id);
+        throw new RouterTransportError({ kind: 'session-expired' }, spec.id);
+      }
+      // Some firmware returns a non-2xx HTTP response without a transport
+      // exception. Never mistake that response for a valid router status.
+      if (response.status >= 400) {
+        throw new RouterTransportError({ kind: 'http-status', status: response.status }, spec.id);
       }
       return response;
     };
 
-    try {
-      const response = await invoke(key);
-      if (key === 'status' && (response.status === 404 || response.status === 501)) {
-        try {
-          const fallback = await invoke('xqsystemStatus');
-          if (fallback.status === 200) return fallback;
-        } catch {
-          // ignore fallback failure, return original response
-        }
-      }
-      return response;
-    } catch (error) {
-      if (
-        key === 'status' &&
-        error instanceof RouterTransportError &&
-        error.failure.kind === 'http-status' &&
-        (error.failure.status === 404 || error.failure.status === 501)
-      ) {
-        try {
+    const invokeWithFallback = async (): Promise<RouterTransportResponse> => {
+      try {
+        return await invoke(key);
+      } catch (error) {
+        if (key === 'status' &&
+            error instanceof RouterTransportError &&
+            error.failure.kind === 'http-status' &&
+            [404, 501].includes(error.failure.status)) {
           return await invoke('xqsystemStatus');
-        } catch {
-          throw error;
         }
+        throw error;
+      }
+    };
+
+    try {
+      return await invokeWithFallback();
+    } catch (error) {
+      // Retry exactly once after a session rejection; never replay a WRITE
+      // because it may already have produced side effects on the router.
+      const staleSession = error instanceof RouterTransportError &&
+        (error.failure.kind === 'session-expired' ||
+          (error.failure.kind === 'http-status' &&
+            [302, 401, 403].includes(error.failure.status)));
+      if (specFor(key).effect === 'READ' && staleSession) {
+        this.invalidateSession();
+        return await invokeWithFallback();
       }
       throw error;
     }
