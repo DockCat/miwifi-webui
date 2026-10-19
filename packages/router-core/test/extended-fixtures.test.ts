@@ -71,7 +71,7 @@ describe('login response variants', () => {
 });
 
 describe('mid-session expiry', () => {
-  it('expires the session and renews on the next ensureSession', async () => {
+  it('renews the session immediately on a read-only code-9 response', async () => {
     let loginCount = 0;
     const transport: RouterTransport = {
       request: async (req: RouterTransportRequest): Promise<RouterTransportResponse> => {
@@ -90,20 +90,14 @@ describe('mid-session expiry', () => {
     };
     const adapter = new MiWifiAdapter(transport, CREDENTIALS);
     await adapter.login();
-    // First call after "expiry" aborts (code 9).
-    await assert.rejects(
-      () => adapter.call('status'),
-      (error: unknown) =>
-        error instanceof RouterTransportError && error.failure.kind === 'aborted'
-    );
-    assert.equal(adapter.hasSession, false);
-    // Renewal succeeds transparently.
-    assert.equal(await adapter.ensureSession(), true);
+    // The first code-9 response now causes one bounded, transparent retry.
     const response = await adapter.call('status');
     assert.equal((response.body as { cpu?: number }).cpu, 10);
+    assert.equal(loginCount, 2);
+    assert.equal(adapter.hasSession, true);
   });
 
-  it('invalidates session on http redirect (302) or 401 response', async () => {
+  it('re-authenticates on an HTTP 302 redirect for READ operations', async () => {
     let callCount = 0;
     const transport: RouterTransport = {
       request: async (req: RouterTransportRequest): Promise<RouterTransportResponse> => {
@@ -126,12 +120,10 @@ describe('mid-session expiry', () => {
     const adapter = new MiWifiAdapter(transport, CREDENTIALS);
     await adapter.login();
     assert.equal(adapter.hasSession, true);
-    await assert.rejects(
-      () => adapter.call('status'),
-      (error: unknown) =>
-        error instanceof RouterTransportError && error.failure.kind === 'http-status'
-    );
-    assert.equal(adapter.hasSession, false, 'session must be invalidated after 302 redirect');
+    const response = await adapter.call('status');
+    assert.equal((response.body as { cpu?: number }).cpu, 15);
+    assert.equal(callCount, 2, 'retry exactly once after a redirect');
+    assert.equal(adapter.hasSession, true, 'renewed session is usable');
   });
 });
 
