@@ -27,7 +27,7 @@ export function registerObservabilityRoutes(
 
   // --- Live router status (from the scheduler's in-memory cache). ---
   app.get('/api/routers/:routerId/status', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { routerId } = request.params as { routerId: string };
     if (!scheduler) {
       return await reply.code(503).send({ error: 'polling_not_running' });
@@ -101,7 +101,7 @@ export function registerObservabilityRoutes(
 
   // --- Telemetry history (read-only; rows come from the scheduler). ---
   app.get('/api/routers/:routerId/telemetry', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { routerId } = request.params as { routerId: string };
     const query = request.query as { limit?: string };
     const limit = query.limit ? Math.min(Number(query.limit) || 60, 500) : 60;

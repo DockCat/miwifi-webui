@@ -152,7 +152,7 @@ export function registerAuthRoutes(
 
   // --- Logout ---
   app.post('/api/auth/logout', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     await repository.revokeSession(request.session!.id);
     await audit.record({
       action: 'auth.logout',
@@ -168,7 +168,7 @@ export function registerAuthRoutes(
 
   // --- Current session info ---
   app.get('/api/auth/session', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     return {
       username: request.authUser!.username,
       session: {
@@ -180,7 +180,7 @@ export function registerAuthRoutes(
 
   // --- Password change (revokes all sessions, forces re-login) ---
   app.post('/api/auth/password', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const body = readCredentials(request);
     const currentPassword =
       typeof body.currentPassword === 'string' ? body.currentPassword : '';
