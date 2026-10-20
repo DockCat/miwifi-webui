@@ -85,7 +85,7 @@ export function registerInvestigationRoutes(
   //     the static "sessions" segment is never captured as :id). ---
 
   app.get('/api/investigations/sessions', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const rows = await repository.listSessions();
     return {
       sessions: rows.map((row) => ({
@@ -102,7 +102,7 @@ export function registerInvestigationRoutes(
   });
 
   app.get('/api/investigations/sessions/:id', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'session_not_found' });
     const session = await repository.findSession(id);
@@ -130,7 +130,7 @@ export function registerInvestigationRoutes(
   });
 
   app.post('/api/investigations/sessions/:id/close', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'session_not_found' });
     const session = await repository.findSession(id);
@@ -157,7 +157,7 @@ export function registerInvestigationRoutes(
   // --- Investigations (turns) ---
 
   app.get('/api/investigations', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const rows = await repository.list();
     return {
       investigations: rows.map((row) => ({
@@ -174,7 +174,7 @@ export function registerInvestigationRoutes(
   });
 
   app.get('/api/investigations/:id', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'not_found' });
     const row = await repository.find(id);
@@ -204,7 +204,7 @@ export function registerInvestigationRoutes(
   });
 
   app.post('/api/investigations', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
     const body = (request.body ?? {}) as {
       question?: unknown;

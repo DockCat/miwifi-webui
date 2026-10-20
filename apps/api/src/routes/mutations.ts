@@ -64,7 +64,7 @@ export function registerMutationRoutes(
     reply: FastifyReply,
     action: 'block' | 'unblock'
   ): Promise<unknown> {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
     const { routerId, deviceId } = request.params as {
       routerId: string;
