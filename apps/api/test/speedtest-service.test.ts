@@ -28,7 +28,7 @@ class MockSpeedtestRepository {
     return this.results.slice(0, limit);
   }
 
-  async purgeOlderThan(days: number): Promise<number> {
+  async purgeOlderThan(): Promise<number> {
     return 0;
   }
 }

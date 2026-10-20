@@ -73,7 +73,8 @@ export async function applyMigrations(pool: pg.Pool): Promise<string[]> {
       } catch (error) {
         await client.query('ROLLBACK');
         throw new Error(
-          `Migration ${file} failed: ${error instanceof Error ? error.message : String(error)}`
+          `Migration ${file} failed: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
         );
       }
     }

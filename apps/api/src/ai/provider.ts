@@ -283,7 +283,7 @@ export async function runInvestigation(
     messages.push(sanitizeMessage({ ...message, role: 'assistant' }));
     for (const call of toolCalls) {
       if (call.function.name === requiredTool) requiredToolUsed = true;
-      let result: unknown = null;
+      let result: unknown;
       try {
         const args = JSON.parse(call.function.arguments) as Record<string, unknown>;
         result = await runTool(toolCtx, call.function.name, args);
