@@ -17,10 +17,10 @@ export interface SpeedtestConfig {
 
 export function loadSpeedtestConfig(): SpeedtestConfig {
   const rawEnabled = process.env.SPEEDTEST_ENABLED;
-  const enabled = rawEnabled === undefined || (rawEnabled !== 'false' && rawEnabled !== '0');
+  const enabled = rawEnabled === 'true' || rawEnabled === '1';
 
   const rawInterval = process.env.SPEEDTEST_INTERVAL_MINUTES;
-  let intervalMinutes = 30;
+  let intervalMinutes = 0;
   if (rawInterval !== undefined && rawInterval.trim() !== '') {
     const parsed = Number.parseInt(rawInterval.trim(), 10);
     if (Number.isInteger(parsed) && parsed >= 0) {

@@ -338,8 +338,8 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `RETENTION_AUDIT_DAYS` | No | `365` | Security/audit event retention period (days) |
 | `RETENTION_INVESTIGATION_DAYS` | No | `30` | AI investigation session retention period (days) |
 | `RETENTION_SPEEDTEST_DAYS` | No | `90` | Speedtest result retention period (days) |
-| `SPEEDTEST_ENABLED` | No | `true` | Enable or disable the speedtest service |
-| `SPEEDTEST_INTERVAL_MINUTES` | No | `30` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
+| `SPEEDTEST_ENABLED` | No | `false` | Enable or disable the speedtest service |
+| `SPEEDTEST_INTERVAL_MINUTES` | No | `0` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
 | `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `mlab`, `cloudflare`) |
 | `SPEEDTEST_DOWNLOAD_BYTES` | No | `50000000` | Download test payload size in bytes for Cloudflare (50MB; configurable) |
 | `SPEEDTEST_UPLOAD_BYTES` | No | `20000000` | Upload test payload size in bytes for Cloudflare (20MB) |

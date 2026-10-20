@@ -28,6 +28,7 @@ import type {
 import type { EventBridge } from './event-bridge.js';
 import { loadRetentionPolicy, type RetentionPolicy } from '../retention/policy.js';
 import type { PollingIntervalConfig } from '../config.js';
+import { classifyRouterPollingFailure } from './polling-failure.js';
 
 /**
  * Re-exported alias so external callers (e.g. tests, main.ts) can reference
@@ -203,6 +204,13 @@ export class PollingScheduler {
           capturedAt: new Date().toISOString(),
           ...status
         };
+        if (this.latestStatus.get(router.id)?.['unreachable'] === true) {
+          console.info(JSON.stringify({
+            event: 'router_poll_recovered',
+            routerId: router.id,
+            operation: 'status'
+          }));
+        }
         this.latestStatus.set(router.id, payload);
         this.events.publish('router-status', { routerId: router.id, status: payload });
 
@@ -239,10 +247,22 @@ export class PollingScheduler {
           }
           this.latestDevices.set(router.id, deviceMap);
         }
-      } catch {
+      } catch (error) {
+        const failureReason = classifyRouterPollingFailure(error);
+        // Log only when the failure category changes; 15-second polling should
+        // not flood Docker logs. No exception text, URLs, stok, or passwords.
+        if (this.latestStatus.get(router.id)?.['failureReason'] !== failureReason) {
+          console.warn(JSON.stringify({
+            event: 'router_poll_failure',
+            routerId: router.id,
+            operation: 'status',
+            reason: failureReason
+          }));
+        }
         const payload = {
           capturedAt: new Date().toISOString(),
-          unreachable: true
+          unreachable: true,
+          failureReason
         };
         this.latestStatus.set(router.id, payload);
         this.events.publish('router-status', {

@@ -34,6 +34,8 @@ export type RouterTransportFailure =
   | { kind: 'timeout' }
   | { kind: 'http-status'; status: number }
   | { kind: 'malformed' }
+  | { kind: 'authentication' }
+  | { kind: 'session-expired' }
   | { kind: 'aborted' };
 
 export class RouterTransportError extends Error {

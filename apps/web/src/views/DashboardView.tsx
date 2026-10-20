@@ -32,6 +32,7 @@ interface StatusPayload {
   wanUp?: boolean;
   deviceCount?: number;
   unreachable?: boolean;
+  failureReason?: 'ROUTER_OFFLINE' | 'TIMEOUT' | 'AUTH_FAILED' | 'API_ERROR' | 'POLLING_UNAVAILABLE';
   wanDownspeed?: number;
   wanUpspeed?: number;
   wanDownloadTotal?: number;
@@ -134,7 +135,7 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
         const result = await api.routerStatus(router.id);
         setStatus(result.status as StatusPayload);
       } catch {
-        setStatus({ unreachable: true });
+        setStatus({ unreachable: true, failureReason: 'POLLING_UNAVAILABLE' });
       }
 
       try {
@@ -440,7 +441,13 @@ export function DashboardView({ router }: { router: RouterSummary | null }) {
                     online={status?.unreachable ? false : (status?.wanUp ?? true)}
                     label={
                       status?.unreachable
-                        ? t('status.unreachable')
+                        ? t(
+                            status.failureReason === 'AUTH_FAILED' ? 'status.auth_failed'
+                            : status.failureReason === 'TIMEOUT' ? 'status.timeout'
+                            : status.failureReason === 'API_ERROR' ? 'status.api_error'
+                            : status.failureReason === 'POLLING_UNAVAILABLE' ? 'status.polling_unavailable'
+                            : 'status.unreachable'
+                          )
                         : status?.wanUp === false
                           ? t('status.offline')
                           : t('status.online')

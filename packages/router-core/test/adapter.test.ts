@@ -161,8 +161,8 @@ describe('MiWifiAdapter session expiry and renewal', () => {
     };
     await assert.rejects(
       () => adapter.call('status'),
-      /aborted/,
-      'expired-session call must throw aborted'
+      /session-expired/,
+      'persistent expired-session response must stop after one retry'
     );
     assert.equal(adapter.hasSession, false, 'session must be invalidated');
 
@@ -238,5 +238,101 @@ describe('MiWifiAdapter malformed responses', () => {
     assert.ok(!probe.capabilities.includes('device-inventory'));
     assert.ok(probe.capabilities.includes('router-info'));
     assert.equal(probe.status, 'PARTIAL');
+  });
+});
+
+describe('MiWifiAdapter bounded read-only session retries', () => {
+  it('recovers from a one-time code 9 with exactly one fresh login', async () => {
+    const scenario = fullRouterScenario();
+    class ExpireOnce extends FixtureTransport {
+      logins = 0;
+      statusCalls = 0;
+      override async request(req: Parameters<FixtureTransport['request']>[0]) {
+        if (req.operation === 'login') this.logins++;
+        if (req.operation === 'status' && ++this.statusCalls === 1) {
+          return { status: 200, body: { code: 9 } };
+        }
+        return super.request(req);
+      }
+    }
+    const transport = new ExpireOnce(scenario);
+    const adapter = new MiWifiAdapter(transport, CREDENTIALS);
+    const response = await adapter.call('status');
+    assert.equal((response.body as { code: number }).code, 0);
+    assert.equal(transport.logins, 2);
+    assert.equal(transport.statusCalls, 2);
+    assert.equal(adapter.hasSession, true);
+  });
+
+  it('recovers after an HTTP 401 without replaying unrelated operations', async () => {
+    const scenario = fullRouterScenario();
+    class RejectOnce extends FixtureTransport {
+      logins = 0;
+      reads = 0;
+      override async request(req: Parameters<FixtureTransport['request']>[0]) {
+        if (req.operation === 'login') this.logins++;
+        if (req.operation === 'status' && ++this.reads === 1) {
+          return { status: 401, body: { code: 401 } };
+        }
+        return super.request(req);
+      }
+    }
+    const transport = new RejectOnce(scenario);
+    const response = await new MiWifiAdapter(transport, CREDENTIALS).call('status');
+    assert.equal((response.body as { code: number }).code, 0);
+    assert.equal(transport.logins, 2);
+    assert.equal(transport.reads, 2);
+  });
+
+  it('stops after two rejected read attempts (never loops forever)', async () => {
+    const scenario = fullRouterScenario({ responses: {
+      status: { status: 200, body: { code: 9 } }
+    } });
+    class CountLogins extends FixtureTransport {
+      logins = 0;
+      reads = 0;
+      override async request(req: Parameters<FixtureTransport['request']>[0]) {
+        if (req.operation === 'login') this.logins++;
+        if (req.operation === 'status') this.reads++;
+        return super.request(req);
+      }
+    }
+    const transport = new CountLogins(scenario);
+    await assert.rejects(() => new MiWifiAdapter(transport, CREDENTIALS).call('status'),
+      /session-expired/);
+    assert.equal(transport.logins, 2);
+    assert.equal(transport.reads, 2);
+  });
+
+  it('reports invalid credentials distinctly and does not expose the password', async () => {
+    const { adapter } = adapterFor(fullRouterScenario({
+      login: { ok: false, token: null }
+    }));
+    await assert.rejects(() => adapter.call('status'), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /authentication/);
+      assert.equal(error.message.includes(CREDENTIALS.password), false);
+      return true;
+    });
+  });
+
+  it('does not replay a write after a session expiry response', async () => {
+    const scenario = fullRouterScenario({
+      responses: {
+        block_internet: { status: 200, body: { code: 9 } }
+      }
+    });
+    class CountWrite extends FixtureTransport {
+      writes = 0;
+      override async request(req: Parameters<FixtureTransport['request']>[0]) {
+        if (req.operation === 'block_internet') this.writes++;
+        return super.request(req);
+      }
+    }
+    const transport = new CountWrite(scenario);
+    const adapter = new MiWifiAdapter(transport, CREDENTIALS);
+    await assert.rejects(() => adapter.call('blockInternet', { mac: 'AA:BB:CC:DD:EE:01' }),
+      /session-expired/);
+    assert.equal(transport.writes, 1);
   });
 });

@@ -60,8 +60,8 @@ describe('Seam 2: Speedtest Config', () => {
     delete process.env.SPEEDTEST_DEFAULT_PROVIDER;
 
     const config = loadSpeedtestConfig();
-    assert.equal(config.enabled, true);
-    assert.equal(config.intervalMinutes, 30);
+    assert.equal(config.enabled, false);
+    assert.equal(config.intervalMinutes, 0);
     assert.equal(config.defaultProvider, 'auto');
     assert.equal(config.providerConfig.downloadBytes, 50_000_000);
     assert.equal(config.providerConfig.uploadBytes, 20_000_000);

@@ -8,7 +8,7 @@ Related plan: `docs/plans/0001-product-foundation.md`
 
 ## Objective
 
-Add an on-demand and scheduled Internet speed testing feature to the UniFi-style dashboard with multiple selectable providers (`Auto` [Router first, fallback to M-Lab NDT7, then Cloudflare], `Cloudflare CDN`, and `M-Lab NDT7`), configurable periodic execution via environment variables (default 30 minutes), PostgreSQL persistence and retention, real-time SSE updates, and AI investigation tool support.
+Add an on-demand and scheduled Internet speed testing feature to the UniFi-style dashboard with multiple selectable providers (`Auto` [Router first, fallback to M-Lab NDT7, then Cloudflare], `Cloudflare CDN`, and `M-Lab NDT7`), configurable periodic execution via environment variables (default disabled), PostgreSQL persistence and retention, real-time SSE updates, and AI investigation tool support.
 
 ## Scope
 
@@ -21,7 +21,7 @@ In:
   - `MlabSpeedtestProvider`: Pure TS WebSocket NDT7 latency, download, and upload measurement against M-Lab infrastructure.
   - `AutoSpeedtestProvider`: Router-side bandwidth test with automatic fallback to M-Lab then Cloudflare on failure/unsupported.
 - Speedtest service with single-flight concurrency lock (`409 Conflict` on overlap), persistence, and SSE event broadcast via `EventBridge`.
-- Configurable scheduler running every `SPEEDTEST_INTERVAL_MINUTES` (default: 30 minutes; 0 = disabled) and retention cleanup (`RETENTION_SPEEDTEST_DAYS`).
+- Configurable scheduler running every `SPEEDTEST_INTERVAL_MINUTES` (default: disabled; 0 = disabled) and retention cleanup (`RETENTION_SPEEDTEST_DAYS`).
 - API routes:
   - `POST /api/speedtest/run` (with optional `{ provider, routerId }`)
   - `GET /api/speedtest/latest`
