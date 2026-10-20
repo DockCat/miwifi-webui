@@ -11,6 +11,7 @@ import { describe, it } from 'node:test';
 import {
   FixtureTransport,
   MiWifiAdapter,
+  RouterTransportError,
   type FixtureScenario
 } from '../src/index.js';
 
@@ -334,5 +335,76 @@ describe('MiWifiAdapter bounded read-only session retries', () => {
     await assert.rejects(() => adapter.call('blockInternet', { mac: 'AA:BB:CC:DD:EE:01' }),
       /session-expired/);
     assert.equal(transport.writes, 1);
+  });
+});
+
+describe('MiWifiAdapter concurrent router login', () => {
+  it('uses one login challenge for concurrent status and inventory reads', async () => {
+    const delegate = new FixtureTransport(fullRouterScenario());
+    let challenges = 0;
+    let logins = 0;
+    const adapter = new MiWifiAdapter({
+      async request(req) {
+        if (req.operation === 'login_page') {
+          challenges += 1;
+          await new Promise<void>((resolve) => setTimeout(resolve, 8));
+        }
+        if (req.operation === 'login') logins += 1;
+        return delegate.request(req);
+      }
+    }, CREDENTIALS);
+    const [status, inventory] = await Promise.all([
+      adapter.call('status'), adapter.call('deviceList')
+    ]);
+    assert.equal(status.status, 200);
+    assert.equal(inventory.status, 200);
+    assert.equal(challenges, 1, 'only one challenge must be requested');
+    assert.equal(logins, 1, 'only one token exchange must occur');
+  });
+
+  it('does not keep a failed login promise cached', async () => {
+    const scenario = fullRouterScenario({ login: { ok: false, token: null } });
+    const delegate = new FixtureTransport(scenario);
+    let logins = 0;
+    const adapter = new MiWifiAdapter({
+      async request(req) {
+        if (req.operation === 'login') logins++;
+        return delegate.request(req);
+      }
+    }, CREDENTIALS);
+    const results = await Promise.all([adapter.login(), adapter.login()]);
+    assert.deepEqual(results, [
+      { ok: false, reason: 'invalid_credentials' },
+      { ok: false, reason: 'invalid_credentials' }
+    ]);
+    assert.equal(logins, 1);
+    (scenario as { login: { ok: boolean; token: string | null } }).login = { ok: true, token: 'fresh-session' };
+    assert.deepEqual(await adapter.login(), { ok: true });
+    assert.equal(logins, 2);
+  });
+
+  it('keeps challenge timeouts distinct from an offline router', async () => {
+    const transport = {
+      async request(req: { operation: string }) {
+        if (req.operation === 'login_page') {
+          throw new RouterTransportError({ kind: 'timeout' }, req.operation);
+        }
+        throw new Error('unexpected operation');
+      }
+    };
+    const adapter = new MiWifiAdapter(transport, CREDENTIALS);
+    assert.deepEqual(await adapter.login(), { ok: false, reason: 'timeout' });
+    await assert.rejects(() => adapter.call('status'), (error: unknown) =>
+      error instanceof RouterTransportError && error.failure.kind === 'timeout');
+  });
+
+  it('does not call a reachable but malformed login page an outage', async () => {
+    const transport = new FixtureTransport(fullRouterScenario({
+      loginPage: '<html>Missing router challenge keys</html>'
+    }));
+    const adapter = new MiWifiAdapter(transport, CREDENTIALS);
+    assert.deepEqual(await adapter.login(), { ok: false, reason: 'malformed_response' });
+    await assert.rejects(() => adapter.call('status'), (error: unknown) =>
+      error instanceof RouterTransportError && error.failure.kind === 'malformed');
   });
 });
