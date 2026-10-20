@@ -60,12 +60,14 @@ export interface ProbeResult {
 
 export type LoginResult =
   | { ok: true }
-  | { ok: false; reason: 'invalid_credentials' | 'router_offline' | 'malformed_response' };
+  | { ok: false; reason: 'invalid_credentials' | 'router_offline' | 'timeout' | 'malformed_response' };
 
 export class MiWifiAdapter {
   /** Ephemeral router session token — memory only, never persisted. */
   private stok: string | null = null;
   private stokExpiresAt = 0;
+  /** Share one login challenge across concurrent read-only pollers. */
+  private loginInFlight: Promise<LoginResult> | null = null;
   private static readonly STOK_TTL_MS = 30 * 60 * 1000; // conservative
 
   constructor(
@@ -92,8 +94,20 @@ export class MiWifiAdapter {
     });
   }
 
-  /** Login to the router and cache the stok in memory. */
+  /** Login is single-flight: status and inventory timers share one challenge. */
   async login(): Promise<LoginResult> {
+    if (this.loginInFlight) return this.loginInFlight;
+    const pending = this.loginOnce();
+    this.loginInFlight = pending;
+    try {
+      return await pending;
+    } finally {
+      if (this.loginInFlight === pending) this.loginInFlight = null;
+    }
+  }
+
+  /** One login attempt. Never expose stok, challenge or password in logs. */
+  private async loginOnce(): Promise<LoginResult> {
     // MiWiFi firmware login requires a key+nonce challenge (both encrypt
     // modes per upstream reference): password is never sent plaintext.
     // key:   scraped from GET /cgi-bin/luci/web (`key: '...'` in the page)
@@ -129,8 +143,11 @@ export class MiWifiAdapter {
       return this.consumeLoginResponse(response);
     } catch (error) {
       if (error instanceof RouterTransportError) {
-        if (error.failure.kind === 'offline' || error.failure.kind === 'timeout') {
+        if (error.failure.kind === 'offline') {
           return { ok: false, reason: 'router_offline' };
+        }
+        if (error.failure.kind === 'timeout') {
+          return { ok: false, reason: 'timeout' };
         }
         return { ok: false, reason: 'malformed_response' };
       }
@@ -155,7 +172,7 @@ export class MiWifiAdapter {
         method: 'GET',
         timeoutMs: 5_000
       });
-      if (response.status !== 200) return null;
+      if (response.status !== 200) throw new RouterTransportError({ kind: 'http-status', status: response.status }, spec.id);
       const html = String(response.body ?? '');
       // deviceId is typically the router MAC (colon-separated hex).
       const keyMatch = /key:\s*['"]([0-9a-f]+)['"]/.exec(html);
@@ -168,7 +185,9 @@ export class MiWifiAdapter {
         newEncryptMode = init?.newEncryptMode === true;
       }
       if (!keyMatch?.[1] || !deviceMatch?.[1]) {
-        return null;
+        // A reachable HTTP 200 login page without a usable challenge is
+        // malformed, not a network outage.
+        throw new RouterTransportError({ kind: 'malformed' }, spec.id);
       }
       return {
         key: keyMatch[1],
@@ -176,9 +195,7 @@ export class MiWifiAdapter {
         newEncryptMode
       };
     } catch (error) {
-      if (error instanceof RouterTransportError) {
-        return null;
-      }
+      // Preserve typed causes; loginOnce maps them into safe public reasons.
       throw error;
     }
   }
@@ -269,7 +286,7 @@ export class MiWifiAdapter {
       if (login.reason === 'invalid_credentials') {
         return { identity, status: 'INCOMPATIBLE', capabilities: [], authenticated: false };
       }
-      if (login.reason === 'router_offline') {
+      if (login.reason === 'router_offline' || login.reason === 'timeout') {
         return { identity, status: 'UNKNOWN', capabilities: [], authenticated: false };
       }
       return { identity, status: 'INCOMPATIBLE', capabilities: [], authenticated: false };
@@ -340,9 +357,9 @@ export class MiWifiAdapter {
       if (spec.requiresStok && !this.hasSession) {
         const login = await this.login();
         if (!login.ok) {
-          const kind = login.reason === 'invalid_credentials'
-            ? 'authentication'
-            : login.reason === 'router_offline' ? 'offline' : 'malformed';
+          const kind = login.reason === 'invalid_credentials' ? 'authentication'
+            : login.reason === 'router_offline' ? 'offline'
+            : login.reason === 'timeout' ? 'timeout' : 'malformed';
           throw new RouterTransportError({ kind }, spec.id);
         }
       }
