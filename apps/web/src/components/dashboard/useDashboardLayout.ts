@@ -21,7 +21,8 @@ export const DEFAULT_LAYOUT: readonly BlockLayout[] = [
   { id: 'client_types', col: 9, row: 1, colSpan: 4, rowSpan: 5, minColSpan: 3, minRowSpan: 4 },
   { id: 'wifi_clients', col: 5, row: 6, colSpan: 4, rowSpan: 3, minColSpan: 3, minRowSpan: 3 },
   { id: 'most_active_clients', col: 9, row: 6, colSpan: 4, rowSpan: 3, minColSpan: 3, minRowSpan: 3 },
-  { id: 'throughput_history', col: 5, row: 9, colSpan: 8, rowSpan: 4, minColSpan: 4, minRowSpan: 3 }
+  { id: 'throughput_history', col: 5, row: 9, colSpan: 8, rowSpan: 4, minColSpan: 4, minRowSpan: 3 },
+  { id: 'speedtest', col: 1, row: 12, colSpan: 4, rowSpan: 4, minColSpan: 3, minRowSpan: 3 }
 ];
 
 const STORAGE_PREFIX = 'miwifi_dashboard_layout_';

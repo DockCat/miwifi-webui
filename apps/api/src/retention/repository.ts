@@ -80,6 +80,18 @@ export class RetentionRepository {
     return { category: 'investigation_session', purged: result.rowCount ?? 0 };
   }
 
+  async purgeSpeedtest(
+    policy: RetentionPolicy,
+    clock?: RetentionClock
+  ): Promise<PurgeResult> {
+    const cutoff = retentionCutoff(policy, 'speedtestDays', clock);
+    const result = await this.pool.query(
+      'DELETE FROM speedtest_result WHERE created_at < $1',
+      [cutoff]
+    );
+    return { category: 'speedtest', purged: result.rowCount ?? 0 };
+  }
+
   async purgeAll(
     policy: RetentionPolicy,
     clock?: RetentionClock
@@ -89,7 +101,8 @@ export class RetentionRepository {
       await this.purgePresence(policy, clock),
       await this.purgeAudit(policy, clock),
       await this.purgeInvestigations(policy, clock),
-      await this.purgeInvestigationSessions(policy, clock)
+      await this.purgeInvestigationSessions(policy, clock),
+      await this.purgeSpeedtest(policy, clock)
     ];
   }
 }

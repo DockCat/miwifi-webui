@@ -31,10 +31,10 @@ import {
 } from '../ai/provider.js';
 import type { ToolContextBase } from '../ai/tools.js';
 import type { PollingScheduler } from '../observability/scheduler.js';
+import { UUID_PATTERN } from '../utils/uuid.js';
 
 /** Application UTF-8 byte budget; not a model-specific token count. */
 export const SESSION_CONTEXT_BYTES = 48_000;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export function historyBytes(history: readonly HistoryTurn[], question: string): number {
   return Buffer.byteLength(JSON.stringify(history) + question, 'utf8');
@@ -85,7 +85,7 @@ export function registerInvestigationRoutes(
   //     the static "sessions" segment is never captured as :id). ---
 
   app.get('/api/investigations/sessions', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const rows = await repository.listSessions();
     return {
       sessions: rows.map((row) => ({
@@ -102,7 +102,7 @@ export function registerInvestigationRoutes(
   });
 
   app.get('/api/investigations/sessions/:id', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'session_not_found' });
     const session = await repository.findSession(id);
@@ -130,7 +130,7 @@ export function registerInvestigationRoutes(
   });
 
   app.post('/api/investigations/sessions/:id/close', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'session_not_found' });
     const session = await repository.findSession(id);
@@ -157,7 +157,7 @@ export function registerInvestigationRoutes(
   // --- Investigations (turns) ---
 
   app.get('/api/investigations', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const rows = await repository.list();
     return {
       investigations: rows.map((row) => ({
@@ -174,7 +174,7 @@ export function registerInvestigationRoutes(
   });
 
   app.get('/api/investigations/:id', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { id } = request.params as { id: string };
     if (!UUID_PATTERN.test(id)) return await reply.code(404).send({ error: 'not_found' });
     const row = await repository.find(id);
@@ -204,7 +204,7 @@ export function registerInvestigationRoutes(
   });
 
   app.post('/api/investigations', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
     const body = (request.body ?? {}) as {
       question?: unknown;

@@ -16,13 +16,16 @@ export interface RetentionPolicy {
   readonly auditDays: number;
   /** Investigation content, days. Default ~30. */
   readonly investigationDays: number;
+  /** Speedtest results, days. Default ~90. */
+  readonly speedtestDays: number;
 }
 
 export const DEFAULT_RETENTION: RetentionPolicy = {
   telemetryDays: 90,
   presenceDays: 365,
   auditDays: 365,
-  investigationDays: 30
+  investigationDays: 30,
+  speedtestDays: 90
 };
 
 function envDays(name: string, fallback: number): number {
@@ -42,7 +45,8 @@ export function loadRetentionPolicy(): RetentionPolicy {
     investigationDays: envDays(
       'RETENTION_INVESTIGATION_DAYS',
       DEFAULT_RETENTION.investigationDays
-    )
+    ),
+    speedtestDays: envDays('RETENTION_SPEEDTEST_DAYS', DEFAULT_RETENTION.speedtestDays)
   };
 }
 
