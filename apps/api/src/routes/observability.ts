@@ -118,14 +118,19 @@ export function registerObservabilityRoutes(
 
   // --- SSE live stream. ---
   app.get('/api/events', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
+    // SSE takes ownership of the socket. Without hijack(), Fastify attempts
+    // to auto-send when this async handler resolves and logs
+    // FST_ERR_REP_ALREADY_SENT for every EventSource connection.
+    reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
       'x-accel-buffering': 'no'
     });
+    reply.raw.write(': connected\n\n');
 
     // Last-Event-ID replay (reconnect support).
     const lastEventIdHeader = request.headers['last-event-id'];
@@ -140,9 +145,9 @@ export function registerObservabilityRoutes(
     }
 
     const unsubscribe = events.subscribe((event) => writeSse(reply.raw, event));
-    request.raw.on('close', () => {
-      unsubscribe();
-    });
+    // GET request sockets may emit request 'close' immediately after the
+    // headers finish. Track the RESPONSE lifetime instead.
+    reply.raw.once('close', unsubscribe);
   });
 }
 
