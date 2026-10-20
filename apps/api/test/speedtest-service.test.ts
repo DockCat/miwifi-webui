@@ -63,9 +63,9 @@ describe('Seam 2: Speedtest Config', () => {
     assert.equal(config.enabled, true);
     assert.equal(config.intervalMinutes, 30);
     assert.equal(config.defaultProvider, 'auto');
-    assert.equal(config.downloadBytes, 50_000_000);
-    assert.equal(config.uploadBytes, 20_000_000);
-    assert.equal(config.mlabDurationSeconds, 5);
+    assert.equal(config.providerConfig.downloadBytes, 50_000_000);
+    assert.equal(config.providerConfig.uploadBytes, 20_000_000);
+    assert.equal(config.providerConfig.mlabDurationSeconds, 5);
   });
 
   it('parses custom environment variables properly', () => {
@@ -80,9 +80,9 @@ describe('Seam 2: Speedtest Config', () => {
     assert.equal(config.enabled, false);
     assert.equal(config.intervalMinutes, 60);
     assert.equal(config.defaultProvider, 'mlab');
-    assert.equal(config.downloadBytes, 100_000_000);
-    assert.equal(config.uploadBytes, 30_000_000);
-    assert.equal(config.mlabDurationSeconds, 10);
+    assert.equal(config.providerConfig.downloadBytes, 100_000_000);
+    assert.equal(config.providerConfig.uploadBytes, 30_000_000);
+    assert.equal(config.providerConfig.mlabDurationSeconds, 10);
 
     delete process.env.SPEEDTEST_ENABLED;
     delete process.env.SPEEDTEST_INTERVAL_MINUTES;
@@ -154,9 +154,7 @@ describe('Seam 2: SpeedtestScheduler', () => {
       enabled: true,
       intervalMinutes: 30,
       defaultProvider: 'auto',
-      downloadBytes: 50_000_000,
-      uploadBytes: 20_000_000,
-      mlabDurationSeconds: 5
+      providerConfig: { downloadBytes: 50_000_000, uploadBytes: 20_000_000, mlabDurationSeconds: 5 }
     });
 
     scheduler.start();
@@ -178,9 +176,7 @@ describe('Seam 2: SpeedtestScheduler', () => {
       enabled: true,
       intervalMinutes: 0,
       defaultProvider: 'auto',
-      downloadBytes: 50_000_000,
-      uploadBytes: 20_000_000,
-      mlabDurationSeconds: 5
+      providerConfig: { downloadBytes: 50_000_000, uploadBytes: 20_000_000, mlabDurationSeconds: 5 }
     });
 
     scheduler.start();
@@ -204,9 +200,7 @@ describe('Seam 2: SpeedtestScheduler', () => {
         enabled: true,
         intervalMinutes: 30,
         defaultProvider: 'auto',
-        downloadBytes: 50_000_000,
-        uploadBytes: 20_000_000,
-        mlabDurationSeconds: 5
+        providerConfig: { downloadBytes: 50_000_000, uploadBytes: 20_000_000, mlabDurationSeconds: 5 }
       },
       async () => ['router-1', 'router-2']
     );
@@ -238,9 +232,7 @@ describe('Seam 2: SpeedtestScheduler', () => {
         enabled: true,
         intervalMinutes: 30,
         defaultProvider: 'auto',
-        downloadBytes: 50_000_000,
-        uploadBytes: 20_000_000,
-        mlabDurationSeconds: 5
+        providerConfig: { downloadBytes: 50_000_000, uploadBytes: 20_000_000, mlabDurationSeconds: 5 }
       },
       async () => []
     );

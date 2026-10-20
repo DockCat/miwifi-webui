@@ -131,9 +131,7 @@ export async function buildApp(
     events,
     audit,
     getRouterAdapter: (routerId) => (routerId ? scheduler?.getAdapter(routerId) ?? null : null),
-    downloadBytes: speedtestConfig.downloadBytes,
-    uploadBytes: speedtestConfig.uploadBytes,
-    mlabDurationSeconds: speedtestConfig.mlabDurationSeconds
+    providerConfig: speedtestConfig.providerConfig
   });
 
   registerSpeedtestRoutes(app, { speedtestService: speedtest });

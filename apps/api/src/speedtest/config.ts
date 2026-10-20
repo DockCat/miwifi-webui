@@ -1,13 +1,18 @@
 import process from 'node:process';
 import type { SpeedtestProviderType } from '@miwifi-webui/contracts';
 
+/** Provider-level tuneable parameters derived from environment variables. */
+export interface SpeedtestProviderConfig {
+  readonly downloadBytes: number;
+  readonly uploadBytes: number;
+  readonly mlabDurationSeconds: number;
+}
+
 export interface SpeedtestConfig {
   readonly enabled: boolean;
   readonly intervalMinutes: number;
   readonly defaultProvider: SpeedtestProviderType;
-  readonly downloadBytes: number;
-  readonly uploadBytes: number;
-  readonly mlabDurationSeconds: number;
+  readonly providerConfig: SpeedtestProviderConfig;
 }
 
 export function loadSpeedtestConfig(): SpeedtestConfig {
@@ -54,5 +59,5 @@ export function loadSpeedtestConfig(): SpeedtestConfig {
     }
   }
 
-  return { enabled, intervalMinutes, defaultProvider, downloadBytes, uploadBytes, mlabDurationSeconds };
+  return { enabled, intervalMinutes, defaultProvider, providerConfig: { downloadBytes, uploadBytes, mlabDurationSeconds } };
 }

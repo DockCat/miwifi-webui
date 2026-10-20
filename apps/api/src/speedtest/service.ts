@@ -6,6 +6,7 @@ import type { EventBridge } from '../observability/event-bridge.js';
 import type { SpeedtestRepository } from './repository.js';
 import type { SpeedtestProvider } from './types.js';
 import type { AuditWriter } from '../audit/writer.js';
+import type { SpeedtestProviderConfig } from './config.js';
 import { CloudflareSpeedtestProvider } from './providers/cloudflare.js';
 import { MlabSpeedtestProvider } from './providers/mlab.js';
 import { AutoSpeedtestProvider } from './providers/auto.js';
@@ -17,9 +18,8 @@ export interface SpeedtestServiceOptions {
   readonly audit?: AuditWriter;
   readonly getRouterAdapter?: (routerId?: string) => MiWifiAdapter | null;
   readonly createProvider?: (providerType: SpeedtestProviderType, routerId?: string) => SpeedtestProvider;
-  readonly downloadBytes?: number;
-  readonly uploadBytes?: number;
-  readonly mlabDurationSeconds?: number;
+  /** Provider-level tuneable parameters (payload sizes, stream duration). */
+  readonly providerConfig?: SpeedtestProviderConfig;
 }
 
 export interface RunTestOptions {
@@ -30,6 +30,8 @@ export interface RunTestOptions {
 }
 
 export class SpeedtestService {
+  // Single-flight lock: prevents overlapping test runs within a process.
+  // Safe in the v1 single-process deployment; does not span process boundaries.
   private running = false;
   private readonly repository: SpeedtestRepository;
   private readonly events: EventBridge;
@@ -39,9 +41,7 @@ export class SpeedtestService {
     providerType: SpeedtestProviderType,
     routerId?: string
   ) => SpeedtestProvider;
-  private readonly downloadBytes?: number;
-  private readonly uploadBytes?: number;
-  private readonly mlabDurationSeconds?: number;
+  private readonly providerConfig?: SpeedtestProviderConfig;
 
   constructor(options: SpeedtestServiceOptions) {
     this.repository = options.repository;
@@ -49,9 +49,7 @@ export class SpeedtestService {
     this.audit = options.audit;
     this.getRouterAdapter = options.getRouterAdapter;
     this.createProviderFn = options.createProvider;
-    this.downloadBytes = options.downloadBytes;
-    this.uploadBytes = options.uploadBytes;
-    this.mlabDurationSeconds = options.mlabDurationSeconds;
+    this.providerConfig = options.providerConfig;
   }
 
   get isRunning(): boolean {
@@ -120,33 +118,29 @@ export class SpeedtestService {
       return this.createProviderFn(providerType, routerId);
     }
 
-    if (providerType === 'mlab') {
-      return new MlabSpeedtestProvider({
-        durationSeconds: this.mlabDurationSeconds
-      });
-    }
-
-    if (providerType === 'cloudflare') {
-      return new CloudflareSpeedtestProvider({
-        downloadBytes: this.downloadBytes,
-        uploadBytes: this.uploadBytes
-      });
-    }
-
-    // Default 'auto': router first with mlab fallback, then cloudflare fallback
-    const adapter = this.getRouterAdapter ? this.getRouterAdapter(routerId) : null;
-    const mlab = new MlabSpeedtestProvider({
-      durationSeconds: this.mlabDurationSeconds
-    });
+    const cfg = this.providerConfig;
+    const mlab = new MlabSpeedtestProvider({ durationSeconds: cfg?.mlabDurationSeconds });
     const cloudflare = new CloudflareSpeedtestProvider({
-      downloadBytes: this.downloadBytes,
-      uploadBytes: this.uploadBytes
+      downloadBytes: cfg?.downloadBytes,
+      uploadBytes: cfg?.uploadBytes
     });
-    return new AutoSpeedtestProvider(adapter, mlab, cloudflare, {
-      audit: this.audit,
-      routerId,
-      actorId: context?.actorId,
-      triggeredBy: context?.triggeredBy
-    });
+    const adapter = this.getRouterAdapter?.(routerId) ?? null;
+
+    // Registry map: Record<SpeedtestProviderType, SpeedtestProvider> enforces
+    // TypeScript exhaustiveness — adding a new value to the SpeedtestProviderType
+    // union in @miwifi-webui/contracts will cause a compile error here until
+    // the map is updated.
+    const providerRegistry: Record<SpeedtestProviderType, SpeedtestProvider> = {
+      mlab,
+      cloudflare,
+      auto: new AutoSpeedtestProvider(adapter, mlab, cloudflare, {
+        audit: this.audit,
+        routerId,
+        actorId: context?.actorId,
+        triggeredBy: context?.triggeredBy
+      })
+    };
+
+    return providerRegistry[providerType];
   }
 }
