@@ -6,9 +6,7 @@
 
 import type {
   SpeedtestResultDTO,
-  SpeedtestProviderType,
-  SpeedtestSourceType,
-  SpeedtestStatusType
+  SpeedtestProviderType
 } from '@miwifi-webui/contracts';
 
 export interface RouterSummary {

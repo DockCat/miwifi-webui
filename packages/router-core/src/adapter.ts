@@ -165,39 +165,34 @@ export class MiWifiAdapter {
     newEncryptMode: boolean;
   } | null> {
     const spec = specFor('loginPage');
-    try {
-      const response = await this.transport.request({
-        operation: spec.id,
-        path: spec.path,
-        method: 'GET',
-        timeoutMs: 5_000
-      });
-      if (response.status !== 200) throw new RouterTransportError({ kind: 'http-status', status: response.status }, spec.id);
-      const html = String(response.body ?? '');
-      // deviceId is typically the router MAC (colon-separated hex).
-      const keyMatch = /key:\s*['"]([0-9a-f]+)['"]/.exec(html);
-      const deviceMatch = /deviceId\s*=\s*['"]([0-9A-Za-z:-]+)['"]/.exec(html);
-      const encryptMatch = /newEncryptMode\s*:\s*["']?(\d)/.exec(html);
-      // Fall back to init_info for newEncryptMode when the page lacks it.
-      let newEncryptMode = encryptMatch?.[1] === '1';
-      if (encryptMatch === null) {
-        const init = await this.readIdentity();
-        newEncryptMode = init?.newEncryptMode === true;
-      }
-      if (!keyMatch?.[1] || !deviceMatch?.[1]) {
-        // A reachable HTTP 200 login page without a usable challenge is
-        // malformed, not a network outage.
-        throw new RouterTransportError({ kind: 'malformed' }, spec.id);
-      }
-      return {
-        key: keyMatch[1],
-        deviceId: deviceMatch[1],
-        newEncryptMode
-      };
-    } catch (error) {
-      // Preserve typed causes; loginOnce maps them into safe public reasons.
-      throw error;
+    const response = await this.transport.request({
+      operation: spec.id,
+      path: spec.path,
+      method: 'GET',
+      timeoutMs: 5_000
+    });
+    if (response.status !== 200) throw new RouterTransportError({ kind: 'http-status', status: response.status }, spec.id);
+    const html = String(response.body ?? '');
+    // deviceId is typically the router MAC (colon-separated hex).
+    const keyMatch = /key:\s*['"]([0-9a-f]+)['"]/.exec(html);
+    const deviceMatch = /deviceId\s*=\s*['"]([0-9A-Za-z:-]+)['"]/.exec(html);
+    const encryptMatch = /newEncryptMode\s*:\s*["']?(\d)/.exec(html);
+    // Fall back to init_info for newEncryptMode when the page lacks it.
+    let newEncryptMode = encryptMatch?.[1] === '1';
+    if (encryptMatch === null) {
+      const init = await this.readIdentity();
+      newEncryptMode = init?.newEncryptMode === true;
     }
+    if (!keyMatch?.[1] || !deviceMatch?.[1]) {
+      // A reachable HTTP 200 login page without a usable challenge is
+      // malformed, not a network outage.
+      throw new RouterTransportError({ kind: 'malformed' }, spec.id);
+    }
+    return {
+      key: keyMatch[1],
+      deviceId: deviceMatch[1],
+      newEncryptMode
+    };
   }
 
   private consumeLoginResponse(response: RouterTransportResponse): LoginResult {

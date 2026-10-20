@@ -117,7 +117,7 @@ export class SpeedtestRepository {
       values.push(since);
     }
 
-    query += ` ORDER BY created_at DESC LIMIT $${idx++};`;
+    query += ` ORDER BY created_at DESC LIMIT $${idx};`;
     values.push(Math.min(Math.max(1, limit), 100));
 
     const { rows } = await this.pool.query<SpeedtestRow>(query, values);

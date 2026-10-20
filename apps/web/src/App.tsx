@@ -11,7 +11,6 @@ import {
   type Locale,
   type MessageKey
 } from './i18n.js';
-import { LanguageSwitcher } from './components/LanguageSwitcher.js';
 import {
   Sidebar,
   loadSidebarCollapsed,

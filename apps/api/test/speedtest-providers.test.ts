@@ -5,9 +5,7 @@ import { AutoSpeedtestProvider } from '../src/speedtest/providers/auto.js';
 
 describe('Seam 1: CloudflareSpeedtestProvider', () => {
   it('measures latency, download and upload speeds via mock fetch', async () => {
-    let callCount = 0;
-    const mockFetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      callCount++;
+    const mockFetch = (async (url: string | URL | Request) => {
       const urlStr = String(url);
       if (urlStr.includes('__down?bytes=0')) {
         // Latency probe
