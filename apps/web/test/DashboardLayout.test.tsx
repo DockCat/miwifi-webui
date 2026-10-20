@@ -39,7 +39,7 @@ describe('Dashboard Layout Engine', () => {
     storageMap.clear();
   });
 
-  it('DEFAULT_LAYOUT contains all 7 core operational blocks', () => {
+  it('DEFAULT_LAYOUT contains all 8 core operational blocks', () => {
     const expectedBlocks = [
       'gateway',
       'recent_events',
@@ -47,9 +47,10 @@ describe('Dashboard Layout Engine', () => {
       'client_types',
       'wifi_clients',
       'most_active_clients',
-      'throughput_history'
+      'throughput_history',
+      'speedtest'
     ];
-    assert.equal(DEFAULT_LAYOUT.length, 7);
+    assert.equal(DEFAULT_LAYOUT.length, 8);
     for (const id of expectedBlocks) {
       const found = DEFAULT_LAYOUT.find((b) => b.id === id);
       assert.ok(found, `Block ${id} should exist in default layout`);

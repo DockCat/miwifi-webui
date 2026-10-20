@@ -22,9 +22,17 @@ export function StatusBadge({ online, label }: StatusBadgeProps) {
   );
 }
 
-export function Card({ title, children }: { title?: ReactNode; children: ReactNode }) {
+export function Card({
+  title,
+  children,
+  className
+}: {
+  title?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <section className="card">
+    <section className={`card${className ? ` ${className}` : ''}`}>
       {title !== undefined && <h2 className="card-title">{title}</h2>}
       {children}
     </section>

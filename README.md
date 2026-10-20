@@ -337,6 +337,13 @@ AI investigation is **disabled by default** and requires explicit administrator 
 | `RETENTION_PRESENCE_DAYS` | No | `365` | Device presence event retention period (days) |
 | `RETENTION_AUDIT_DAYS` | No | `365` | Security/audit event retention period (days) |
 | `RETENTION_INVESTIGATION_DAYS` | No | `30` | AI investigation session retention period (days) |
+| `RETENTION_SPEEDTEST_DAYS` | No | `90` | Speedtest result retention period (days) |
+| `SPEEDTEST_ENABLED` | No | `false` | Enable or disable the speedtest service |
+| `SPEEDTEST_INTERVAL_MINUTES` | No | `0` | Scheduled speedtest interval in minutes (`0` to disable scheduled tests) |
+| `SPEEDTEST_DEFAULT_PROVIDER` | No | `auto` | Default provider for scheduled tests (`auto`, `mlab`, `cloudflare`) |
+| `SPEEDTEST_DOWNLOAD_BYTES` | No | `50000000` | Download test payload size in bytes for Cloudflare (50MB; configurable) |
+| `SPEEDTEST_UPLOAD_BYTES` | No | `20000000` | Upload test payload size in bytes for Cloudflare (20MB) |
+| `SPEEDTEST_MLAB_DURATION_SECONDS` | No | `5` | M-Lab NDT7 stream duration per direction in seconds (5s; saturates 800+ Mbps) |
 | `POLLING_STATUS_INTERVAL_MS` | No | `15000` | Router live status polling interval in ms (in-memory + SSE) |
 | `POLLING_INVENTORY_INTERVAL_MS` | No | `60000` | Device inventory polling and presence reconciliation interval in ms |
 | `POLLING_TELEMETRY_INTERVAL_MS` | No | `60000` | Historical telemetry snapshot persistence interval in ms |

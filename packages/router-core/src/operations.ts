@@ -121,6 +121,15 @@ export const OPERATIONS = {
     effect: 'READ',
     requiresStok: true,
     probe: false
+  },
+  /** Trigger router bandwidth speedtest (DISRUPTIVE — temporarily saturates WAN/CPU). */
+  bandwidthTest: {
+    id: 'bandwidth_test',
+    path: '/cgi-bin/luci/;stok={stok}/api/misystem/bandwidth_test',
+    method: 'POST',
+    effect: 'DISRUPTIVE',
+    requiresStok: true,
+    probe: false
   }
 } as const satisfies Record<string, RouterOperationSpec>;
 
