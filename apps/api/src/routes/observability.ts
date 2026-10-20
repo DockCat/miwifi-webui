@@ -27,7 +27,7 @@ export function registerObservabilityRoutes(
 
   // --- Live router status (from the scheduler's in-memory cache). ---
   app.get('/api/routers/:routerId/status', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { routerId } = request.params as { routerId: string };
     if (!scheduler) {
       return await reply.code(503).send({ error: 'polling_not_running' });
@@ -101,7 +101,7 @@ export function registerObservabilityRoutes(
 
   // --- Telemetry history (read-only; rows come from the scheduler). ---
   app.get('/api/routers/:routerId/telemetry', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const { routerId } = request.params as { routerId: string };
     const query = request.query as { limit?: string };
     const limit = query.limit ? Math.min(Number(query.limit) || 60, 500) : 60;
@@ -118,14 +118,19 @@ export function registerObservabilityRoutes(
 
   // --- SSE live stream. ---
   app.get('/api/events', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
+    // SSE takes ownership of the socket. Without hijack(), Fastify attempts
+    // to auto-send when this async handler resolves and logs
+    // FST_ERR_REP_ALREADY_SENT for every EventSource connection.
+    reply.hijack();
     reply.raw.writeHead(200, {
       'content-type': 'text/event-stream',
       'cache-control': 'no-cache',
       connection: 'keep-alive',
       'x-accel-buffering': 'no'
     });
+    reply.raw.write(': connected\n\n');
 
     // Last-Event-ID replay (reconnect support).
     const lastEventIdHeader = request.headers['last-event-id'];
@@ -140,9 +145,9 @@ export function registerObservabilityRoutes(
     }
 
     const unsubscribe = events.subscribe((event) => writeSse(reply.raw, event));
-    request.raw.on('close', () => {
-      unsubscribe();
-    });
+    // GET request sockets may emit request 'close' immediately after the
+    // headers finish. Track the RESPONSE lifetime instead.
+    reply.raw.once('close', unsubscribe);
   });
 }
 

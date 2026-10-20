@@ -50,14 +50,14 @@ export function registerRouterRoutes(
 
   // --- List routers (browser-safe summaries). ---
   app.get('/api/routers', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
     const routers = await repository.listRouters();
     return { routers: routers.map(toSummary) };
   });
 
   // --- Onboard / re-probe a router. ---
   app.post('/api/routers/onboard', async (request, reply) => {
-    if (!requireAuth(request, reply)) return reply.sent as unknown as object;
+    if (!requireAuth(request, reply)) return reply;
 
     const body = (request.body ?? {}) as OnboardBody;
     const host = typeof body.host === 'string' ? body.host.trim() : '';
