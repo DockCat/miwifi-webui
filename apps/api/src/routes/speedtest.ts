@@ -58,13 +58,10 @@ export function registerSpeedtestRoutes(
         if (msg.includes('already in progress')) {
           return reply.code(409).send({ error: 'speedtest_already_running' });
         }
-        // Provider error messages are intentionally surfaced to the client.
-        // They originate from our own provider classes and contain only
-        // measurement-level diagnostics (e.g. HTTP status codes, timeouts).
-        // They never contain credentials, stok tokens, DB connection strings,
-        // or internal stack traces. See docs/tasks/0015-dashboard-speedtest.md.
-        app.log.error({ err }, 'speedtest run failed');
-        return reply.code(500).send({ error: msg });
+        // Do not expose provider errors, internal network paths, database
+        // strings or exception stacks to the browser or central log collector.
+        app.log.warn({ event: 'speedtest_provider_failed' }, 'speedtest request failed');
+        return reply.code(500).send({ error: 'speedtest_failed' });
       }
     }
   );

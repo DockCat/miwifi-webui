@@ -324,3 +324,37 @@ describe('Seam 3: Speedtest Routes', () => {
     assert.equal(body.error, 'invalid_provider');
   });
 });
+
+describe('Speedtest failure confidentiality', () => {
+  it('does not expose provider exception details in the API response', async () => {
+    const marker = 'SECRET_INTERNAL_DATABASE_URL_AND_STOK';
+    const mockRepo = {
+      insertResult: async () => { throw new Error('should-not-persist'); },
+      getLatest: async () => null,
+      getHistory: async () => [],
+      purgeOlderThan: async () => 0
+    };
+    const speedtestService = new SpeedtestService({
+      repository: mockRepo as never,
+      events: new EventBridge(),
+      createProvider: () => ({
+        name: 'cloudflare',
+        run: async () => { throw new Error(marker); }
+      })
+    });
+    const app = await buildApp({ pool: createMockPool(), speedtestService });
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/speedtest/run',
+        headers: { cookie: `${SESSION_COOKIE}=valid-session-token` },
+        payload: { provider: 'cloudflare' }
+      });
+      assert.equal(res.statusCode, 500);
+      assert.deepEqual(JSON.parse(res.body), { error: 'speedtest_failed' });
+      assert.equal(res.body.includes(marker), false);
+    } finally {
+      await app.close();
+    }
+  });
+});
