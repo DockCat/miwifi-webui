@@ -38,7 +38,8 @@ USER 101
 
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
 # default.conf listens on 8080 (unprivileged) and proxies /api to the backend.
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# Ensure non-root nginx can read this file even when source checkout umask is 077.
+COPY --chmod=0644 apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080
 
