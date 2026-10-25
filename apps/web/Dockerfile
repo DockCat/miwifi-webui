@@ -1,9 +1,11 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM node:26-alpine@sha256:0b36e8c136b94cd4fcf02188228e76c31ad5872eef3fec8cbd2eee500cfd9e80 AS builder
+FROM --platform=$BUILDPLATFORM node:26.12.1-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS builder
 
 WORKDIR /app
 
-RUN npm install -g pnpm@11.25.0
+# CVE-2026-111497: fail closed if Brotli security update is unavailable.
+RUN apk add --no-cache --upgrade 'brotli-libs>=1.2.1-r0' \
+    && npm install -g pnpm@11.25.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/contracts/package.json ./packages/contracts/
@@ -29,11 +31,15 @@ LABEL org.opencontainers.image.title="miwifi-webui-web" \
       org.opencontainers.image.source="https://github.com/DockCat/miwifi-webui" \
       org.opencontainers.image.documentation="https://github.com/DockCat/miwifi-webui#readme"
 
+# CVE-2026-111497: nginx runtime is Alpine and needs its own fix.
+USER root
+RUN apk add --no-cache --upgrade 'brotli-libs>=1.2.1-r0'
 USER 101
 
 COPY --from=builder /app/apps/web/dist /usr/share/nginx/html
 # default.conf listens on 8080 (unprivileged) and proxies /api to the backend.
-COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# Ensure non-root nginx can read this file even when source checkout umask is 077.
+COPY --chmod=0644 apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 8080
 
