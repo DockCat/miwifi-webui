@@ -24,7 +24,7 @@ COPY apps/web ./apps/web
 RUN pnpm --filter @miwifi-webui/web build
 
 # Production runtime stage: unprivileged nginx (listens on 8080, runs as uid 101)
-FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b54ac358b83fc6c965793fd271839b4ea4cdb6e99895bb19618cbc2ca152d972 AS runner
+FROM nginxinc/nginx-unprivileged:1.31-alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e AS runner
 
 LABEL org.opencontainers.image.title="miwifi-webui-web" \
       org.opencontainers.image.description="Self-hosted Xiaomi/Redmi router observability and AI investigation - Web UI" \
