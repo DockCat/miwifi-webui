@@ -16,7 +16,7 @@
     "admin:reset-password:dist": "node dist/cli/admin.js reset-password"
   },
   "dependencies": {
-    "@fastify/cookie": "^11.1.3",
+    "@fastify/cookie": "^11.1.5",
     "@fastify/rate-limit": "^11.2.0",
     "@miwifi-webui/contracts": "workspace:*",
     "@miwifi-webui/router-core": "workspace:*",
